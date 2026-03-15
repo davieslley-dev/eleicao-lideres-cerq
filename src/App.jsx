@@ -110,6 +110,18 @@ export default function App() {
   const [candidateNumber, setCandidateNumber] = useState('');
   const [candidatePhoto, setCandidatePhoto] = useState('');
 
+  const [editingElectionId, setEditingElectionId] = useState('');
+  const [editClassName, setEditClassName] = useState('');
+  const [editTitle, setEditTitle] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+
+  const [editingCandidateId, setEditingCandidateId] = useState('');
+  const [editCandidateElectionId, setEditCandidateElectionId] = useState('');
+  const [editCandidateName, setEditCandidateName] = useState('');
+  const [editCandidatePositionId, setEditCandidatePositionId] = useState('');
+  const [editCandidateNumber, setEditCandidateNumber] = useState('');
+  const [editCandidatePhoto, setEditCandidatePhoto] = useState('');
+
   const [accessCodeInput, setAccessCodeInput] = useState('');
   const [currentElectionId, setCurrentElectionId] = useState('');
   const [voterName, setVoterName] = useState('');
@@ -126,6 +138,11 @@ export default function App() {
   const currentElection = useMemo(
     () => elections.find((election) => election.id === currentElectionId),
     [elections, currentElectionId]
+  );
+
+  const editingCandidateElection = useMemo(
+    () => elections.find((election) => election.id === editCandidateElectionId),
+    [elections, editCandidateElectionId]
   );
 
   async function loadData() {
@@ -227,11 +244,58 @@ export default function App() {
     await loadData();
   }
 
+  function startEditElection(election) {
+    setEditingElectionId(election.id);
+    setEditClassName(election.className);
+    setEditTitle(election.title);
+    setEditDescription(election.description || '');
+    setMessage('');
+  }
+
+  function cancelEditElection() {
+    setEditingElectionId('');
+    setEditClassName('');
+    setEditTitle('');
+    setEditDescription('');
+  }
+
+  async function saveElectionEdit() {
+    if (!editingElectionId) return;
+    if (!editClassName.trim()) {
+      setMessage('Informe a turma para salvar a edição.');
+      return;
+    }
+
+    const payload = {
+      class_name: editClassName.trim(),
+      title: editTitle.trim() || `Eleição da Turma ${editClassName.trim()}`,
+      description: editDescription.trim(),
+    };
+
+    const { error } = await supabase.from('elections').update(payload).eq('id', editingElectionId);
+    if (error) {
+      setMessage(`Erro ao editar turma: ${error.message}`);
+      return;
+    }
+
+    cancelEditElection();
+    setMessage('Turma atualizada com sucesso.');
+    await loadData();
+  }
+
   function handlePhotoUpload(event) {
     const file = event.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => setCandidatePhoto(String(reader.result || ''));
+    reader.readAsDataURL(file);
+  }
+
+  function handleEditCandidatePhotoUpload(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setEditCandidatePhoto(String(reader.result || ''));
     reader.readAsDataURL(file);
   }
 
@@ -262,11 +326,60 @@ export default function App() {
     await loadData();
   }
 
+  function startEditCandidate(election, candidate) {
+    setEditingCandidateId(candidate.id);
+    setEditCandidateElectionId(election.id);
+    setEditCandidateName(candidate.name);
+    setEditCandidatePositionId(candidate.positionId);
+    setEditCandidateNumber(candidate.number || '');
+    setEditCandidatePhoto(candidate.photo || '');
+    setMessage('');
+  }
+
+  function cancelEditCandidate() {
+    setEditingCandidateId('');
+    setEditCandidateElectionId('');
+    setEditCandidateName('');
+    setEditCandidatePositionId('');
+    setEditCandidateNumber('');
+    setEditCandidatePhoto('');
+  }
+
+  async function saveCandidateEdit() {
+    if (!editingCandidateId) return;
+    if (!editCandidateName.trim() || !editCandidatePositionId) {
+      setMessage('Informe o nome e o cargo do candidato.');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('candidates')
+      .update({
+        name: editCandidateName.trim(),
+        number: editCandidateNumber.trim(),
+        position_id: editCandidatePositionId,
+        photo_url: editCandidatePhoto,
+      })
+      .eq('id', editingCandidateId);
+
+    if (error) {
+      setMessage(`Erro ao editar candidato: ${error.message}`);
+      return;
+    }
+
+    cancelEditCandidate();
+    setMessage('Candidato atualizado com sucesso.');
+    await loadData();
+  }
+
   async function deleteCandidate(candidateId) {
     const { error } = await supabase.from('candidates').delete().eq('id', candidateId);
     if (error) {
       setMessage(`Erro ao excluir candidato: ${error.message}`);
       return;
+    }
+    if (editingCandidateId === candidateId) {
+      cancelEditCandidate();
     }
     setMessage('Candidato excluído com sucesso.');
     await loadData();
@@ -277,6 +390,9 @@ export default function App() {
     if (error) {
       setMessage(`Erro ao excluir turma: ${error.message}`);
       return;
+    }
+    if (editingElectionId === electionId) {
+      cancelEditElection();
     }
     setMessage('Turma excluída com sucesso.');
     await loadData();
@@ -688,6 +804,83 @@ export default function App() {
         </div>
       </div>
 
+      {editingElectionId ? (
+        <div style={styles.card}>
+          <h2 style={styles.title}>Editar turma</h2>
+
+          <div style={styles.field}>
+            <label style={styles.label}>Turma</label>
+            <input style={styles.input} value={editClassName} onChange={(e) => setEditClassName(e.target.value)} />
+          </div>
+
+          <div style={styles.field}>
+            <label style={styles.label}>Título da eleição</label>
+            <input style={styles.input} value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+          </div>
+
+          <div style={styles.field}>
+            <label style={styles.label}>Descrição</label>
+            <input style={styles.input} value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
+          </div>
+
+          <div style={styles.buttonRow}>
+            <button style={styles.primaryButton} onClick={saveElectionEdit}>
+              Salvar edição da turma
+            </button>
+            <button style={styles.secondaryButton} onClick={cancelEditElection}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {editingCandidateId ? (
+        <div style={styles.card}>
+          <h2 style={styles.title}>Editar candidato</h2>
+
+          <div style={styles.field}>
+            <label style={styles.label}>Nome do candidato</label>
+            <input style={styles.input} value={editCandidateName} onChange={(e) => setEditCandidateName(e.target.value)} />
+          </div>
+
+          <div style={styles.field}>
+            <label style={styles.label}>Cargo disputado</label>
+            <select
+              style={styles.input}
+              value={editCandidatePositionId}
+              onChange={(e) => setEditCandidatePositionId(e.target.value)}
+            >
+              <option value="">Selecione</option>
+              {(editingCandidateElection?.positions || []).map((position) => (
+                <option key={position.id} value={position.id}>
+                  {position.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div style={styles.field}>
+            <label style={styles.label}>Número do candidato</label>
+            <input style={styles.input} value={editCandidateNumber} onChange={(e) => setEditCandidateNumber(e.target.value)} />
+          </div>
+
+          <div style={styles.field}>
+            <label style={styles.label}>Foto do candidato</label>
+            <input type="file" accept="image/*" onChange={handleEditCandidatePhotoUpload} />
+            {editCandidatePhoto ? <div style={styles.previewText}>Foto carregada para atualização.</div> : null}
+          </div>
+
+          <div style={styles.buttonRow}>
+            <button style={styles.primaryButton} onClick={saveCandidateEdit}>
+              Salvar edição do candidato
+            </button>
+            <button style={styles.secondaryButton} onClick={cancelEditCandidate}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <div style={styles.card}>
         <h2 style={styles.title}>Painel das turmas</h2>
 
@@ -708,11 +901,22 @@ export default function App() {
               <p><strong>Candidatos:</strong> {election.candidates.length}</p>
               <p><strong>Votantes:</strong> {election.votes.length}</p>
 
-              <div style={styles.linkBox}>{`${window.location.origin}/votacao/${election.accessCode}`}</div>
+              <a
+                href={`${window.location.origin}/votacao/${election.accessCode}`}
+                target="_blank"
+                rel="noreferrer"
+                style={styles.linkBox}
+              >
+                {`${window.location.origin}/votacao/${election.accessCode}`}
+              </a>
 
               <div style={styles.buttonRow}>
                 <button style={styles.secondaryButton} onClick={() => toggleElectionStatus(election)}>
                   {election.status === 'aberta' ? 'Encerrar' : 'Reabrir'}
+                </button>
+
+                <button style={styles.editButton} onClick={() => startEditElection(election)}>
+                  Editar turma
                 </button>
 
                 <button style={styles.dangerButton} onClick={() => deleteElection(election.id)}>
@@ -737,9 +941,14 @@ export default function App() {
                       </div>
                     </div>
 
-                    <button style={styles.dangerButtonSmall} onClick={() => deleteCandidate(candidate.id)}>
-                      Excluir
-                    </button>
+                    <div style={styles.buttonRowSmall}>
+                      <button style={styles.editButtonSmall} onClick={() => startEditCandidate(election, candidate)}>
+                        Editar
+                      </button>
+                      <button style={styles.dangerButtonSmall} onClick={() => deleteCandidate(candidate.id)}>
+                        Excluir
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -755,7 +964,14 @@ export default function App() {
           <div key={election.id} style={{ marginBottom: 30 }}>
             <h3>{election.className}</h3>
             <p>
-              <strong>Link:</strong> {`${window.location.origin}/votacao/${election.accessCode}`}
+              <strong>Link:</strong>{' '}
+              <a
+                href={`${window.location.origin}/votacao/${election.accessCode}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {`${window.location.origin}/votacao/${election.accessCode}`}
+              </a>
             </p>
             {getResultsByPosition(election).map((group) => (
               <div key={group.position.id} style={styles.groupBlock}>
@@ -888,6 +1104,15 @@ const styles = {
     cursor: 'pointer',
     fontSize: 16,
   },
+  editButton: {
+    background: '#2563eb',
+    color: 'white',
+    border: 'none',
+    borderRadius: 14,
+    padding: '12px 18px',
+    cursor: 'pointer',
+    fontSize: 16,
+  },
   dangerButton: {
     background: '#ef4444',
     color: 'white',
@@ -896,6 +1121,15 @@ const styles = {
     padding: '12px 18px',
     cursor: 'pointer',
     fontSize: 16,
+  },
+  editButtonSmall: {
+    background: '#2563eb',
+    color: 'white',
+    border: 'none',
+    borderRadius: 12,
+    padding: '10px 14px',
+    cursor: 'pointer',
+    fontSize: 14,
   },
   dangerButtonSmall: {
     background: '#ef4444',
@@ -959,6 +1193,11 @@ const styles = {
     flexWrap: 'wrap',
     marginBottom: 16,
   },
+  buttonRowSmall: {
+    display: 'flex',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
   candidateRow: {
     display: 'flex',
     justifyContent: 'space-between',
@@ -1006,6 +1245,11 @@ const styles = {
     height: 48,
     borderRadius: '50%',
     background: '#e5e7eb',
+  },
+  previewText: {
+    marginTop: 8,
+    color: '#2563eb',
+    fontSize: 14,
   },
   positionBox: {
     marginTop: 20,
