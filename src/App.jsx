@@ -13,8 +13,8 @@ const DEFAULT_POSITIONS = [
   'Representante de Segmento',
 ];
 
-const ADMIN_USERNAME = 'administrador';
-const ADMIN_PASSWORD = 'admin123';
+const ADMIN_USERNAME = 'CERQ';
+const ADMIN_PASSWORD = '1234';
 
 function uid() {
   return Math.random().toString(36).slice(2, 10);
@@ -95,7 +95,7 @@ export default function App() {
   const [elections, setElections] = useState([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
-  const [adminUsername, setAdminUsername] = useState('');
+  const [adminUsername, setAdminUsername] = useState('CERQ');
   const [adminPassword, setAdminPassword] = useState('');
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
 
@@ -506,8 +506,8 @@ export default function App() {
                                   <div style={styles.avatarPlaceholder} />
                                 )}
                                 <div>
-                                  <div style={styles.candidateName}>{candidate.name}</div>
-                                  <div style={styles.candidateMeta}>Nº {candidate.number}</div>
+                                  <div style={{ ...styles.candidateName, color: active ? '#111827' : styles.candidateName.color }}>{candidate.name}</div>
+                                  <div style={{ ...styles.candidateMeta, color: active ? '#1f2937' : styles.candidateMeta.color }}>Nº {candidate.number}</div>
                                 </div>
                               </div>
                             </button>
@@ -550,7 +550,7 @@ export default function App() {
               style={styles.input}
               value={adminUsername}
               onChange={(e) => setAdminUsername(e.target.value)}
-              placeholder="Digite o usuário"
+              placeholder="CERQ"
             />
           </div>
 
@@ -1028,6 +1028,7 @@ const styles = {
   candidateButtonActive: {
     border: '2px solid #0f172a',
     background: '#e2e8f0',
+    color: '#111827',
   },
   groupBlock: {
     marginTop: 16,
