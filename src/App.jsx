@@ -976,6 +976,7 @@ const styles = {
   candidateName: {
     fontWeight: 700,
     marginBottom: 6,
+    color: '#111827',
   },
   candidateMeta: {
     color: '#334155',
@@ -1021,6 +1022,7 @@ const styles = {
   candidateButton: {
     border: '1px solid #cbd5e1',
     background: 'white',
+    color: '#111827',
     borderRadius: 18,
     padding: 14,
     cursor: 'pointer',
