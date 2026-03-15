@@ -1,4 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 const DEFAULT_POSITIONS = [
   'Líder',
@@ -8,481 +13,1035 @@ const DEFAULT_POSITIONS = [
   'Representante de Segmento',
 ];
 
-const STORAGE_KEY = 'cerq-eleicao-lideres-local';
+const ADMIN_USERNAME = 'administrador';
 const ADMIN_PASSWORD = 'admin123';
 
-const uid = () => Math.random().toString(36).slice(2, 10);
-const cleanCPF = (cpf) => cpf.replace(/\D/g, '');
+function uid() {
+  return Math.random().toString(36).slice(2, 10);
+}
 
-const formatCPF = (value) => {
-  const digits = value.replace(/\D/g, '').slice(0, 11);
-  return digits
-    .replace(/(\d{3})(\d)/, '$1.$2')
-    .replace(/(\d{3})(\d)/, '$1.$2')
-    .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
-};
-
-const slugify = (text) =>
-  text
+function slugify(text) {
+  return text
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)/g, '');
+}
 
-const initialData = {
-  elections: [
-    {
-      id: uid(),
-      schoolName: 'Colégio Estadual Rodolfo de Queiroz',
-      className: '1º Ano A',
-      title: 'Eleição da Turma 1º Ano A',
-      description: 'Escolha da representação estudantil da turma.',
-      status: 'aberta',
-      accessCode: '1anoa-rodolfo-queiroz',
-      positions: DEFAULT_POSITIONS,
-      candidates: [
-        { id: uid(), name: 'Ana Clara', position: 'Líder', number: '10', photo: '' },
-        { id: uid(), name: 'João Pedro', position: 'Vice-líder', number: '20', photo: '' },
-      ],
-      votes: [],
-    },
-  ],
-};
+function cleanCPF(cpf) {
+  return cpf.replace(/\D/g, '');
+}
+
+function formatCPF(value) {
+  const digits = value.replace(/\D/g, '').slice(0, 11);
+  return digits
+    .replace(/(\d{3})(\d)/, '$1.$2')
+    .replace(/(\d{3})(\d)/, '$1.$2')
+    .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+}
+
+function groupElectionData(elections, positions, candidates, voters, votes) {
+  return elections.map((election) => {
+    const electionPositions = positions
+      .filter((position) => position.election_id === election.id)
+      .map((position) => ({ id: position.id, name: position.name }));
+
+    const electionCandidates = candidates
+      .filter((candidate) => candidate.election_id === election.id)
+      .map((candidate) => ({
+        id: candidate.id,
+        name: candidate.name,
+        number: candidate.number || '',
+        photo: candidate.photo_url || '',
+        positionId: candidate.position_id,
+        position:
+          electionPositions.find((position) => position.id === candidate.position_id)?.name || '',
+      }));
+
+    const electionVoters = voters.filter((voter) => voter.election_id === election.id);
+    const electionVotes = votes.filter((vote) => vote.election_id === election.id);
+
+    const mappedVotes = electionVoters.map((voter) => ({
+      id: voter.id,
+      voterName: voter.voter_name,
+      cpf: voter.cpf,
+      choices: electionVotes
+        .filter((vote) => vote.voter_id === voter.id)
+        .map((vote) => ({
+          positionId: vote.position_id,
+          position:
+            electionPositions.find((position) => position.id === vote.position_id)?.name || '',
+          candidateId: vote.candidate_id,
+        })),
+    }));
+
+    return {
+      id: election.id,
+      schoolName: election.school_name,
+      className: election.class_name,
+      title: election.title,
+      description: election.description || '',
+      status: election.status,
+      accessCode: election.access_code,
+      positions: electionPositions,
+      candidates: electionCandidates,
+      votes: mappedVotes,
+    };
+  });
+}
 
 export default function App() {
-  const [data, setData] = useState(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    return saved ? JSON.parse(saved) : initialData;
-  });
+  const [elections, setElections] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
+  const [adminUsername, setAdminUsername] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
-  const [currentPath, setCurrentPath] = useState(window.location.pathname || '/');
 
-  const [adminSchoolName, setAdminSchoolName] = useState('Colégio Estadual Rodolfo de Queiroz');
-  const [adminClassName, setAdminClassName] = useState('');
-  const [adminTitle, setAdminTitle] = useState('');
-  const [adminDescription, setAdminDescription] = useState('');
-  const [adminPositions, setAdminPositions] = useState(DEFAULT_POSITIONS.join(', '));
-  const [selectedElectionId, setSelectedElectionId] = useState(data.elections[0]?.id || '');
+  const [className, setClassName] = useState('');
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [positionsText, setPositionsText] = useState(DEFAULT_POSITIONS.join(', '));
+
+  const [selectedElectionId, setSelectedElectionId] = useState('');
   const [candidateName, setCandidateName] = useState('');
-  const [candidatePosition, setCandidatePosition] = useState('');
+  const [candidatePositionId, setCandidatePositionId] = useState('');
   const [candidateNumber, setCandidateNumber] = useState('');
   const [candidatePhoto, setCandidatePhoto] = useState('');
 
   const [accessCodeInput, setAccessCodeInput] = useState('');
-  const [authenticatedElectionId, setAuthenticatedElectionId] = useState('');
+  const [currentElectionId, setCurrentElectionId] = useState('');
   const [voterName, setVoterName] = useState('');
   const [voterCPF, setVoterCPF] = useState('');
   const [selectedVotes, setSelectedVotes] = useState({});
 
-  const elections = data.elections;
-  const selectedAdminElection = useMemo(
-    () => elections.find((e) => e.id === selectedElectionId),
+  const isVotingPage = window.location.pathname.startsWith('/votacao/');
+
+  const selectedElection = useMemo(
+    () => elections.find((election) => election.id === selectedElectionId),
     [elections, selectedElectionId]
   );
-  const authenticatedElection = useMemo(
-    () => elections.find((e) => e.id === authenticatedElectionId),
-    [elections, authenticatedElectionId]
+
+  const currentElection = useMemo(
+    () => elections.find((election) => election.id === currentElectionId),
+    [elections, currentElectionId]
   );
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  }, [data]);
+  async function loadData() {
+    setLoading(true);
+    const [{ data: electionsData, error: electionsError }, { data: positionsData, error: positionsError }, { data: candidatesData, error: candidatesError }, { data: votersData, error: votersError }, { data: votesData, error: votesError }] = await Promise.all([
+      supabase.from('elections').select('*').order('created_at', { ascending: true }),
+      supabase.from('positions').select('*').order('created_at', { ascending: true }),
+      supabase.from('candidates').select('*').order('created_at', { ascending: true }),
+      supabase.from('voters').select('*').order('created_at', { ascending: true }),
+      supabase.from('votes').select('*').order('created_at', { ascending: true }),
+    ]);
 
-  useEffect(() => {
-    const syncRoute = () => {
-      const path = window.location.pathname || '/';
-      setCurrentPath(path);
-      const parts = path.split('/').filter(Boolean);
-      if (parts[0] === 'votacao' && parts[1]) {
-        const election = data.elections.find((e) => e.accessCode === parts[1]);
-        if (election) {
-          setAuthenticatedElectionId(election.id);
-          setAccessCodeInput(election.accessCode);
-        }
+    const firstError = electionsError || positionsError || candidatesError || votersError || votesError;
+
+    if (firstError) {
+      setMessage(`Erro ao carregar dados: ${firstError.message}`);
+      setLoading(false);
+      return;
+    }
+
+    const grouped = groupElectionData(
+      electionsData || [],
+      positionsData || [],
+      candidatesData || [],
+      votersData || [],
+      votesData || []
+    );
+
+    setElections(grouped);
+    setSelectedElectionId((current) => current || grouped[0]?.id || '');
+
+    const path = window.location.pathname;
+    if (path.startsWith('/votacao/')) {
+      const code = path.replace('/votacao/', '').trim();
+      const election = grouped.find((item) => item.accessCode === code);
+      if (election) {
+        setCurrentElectionId(election.id);
+        setAccessCodeInput(code);
       }
-    };
-    syncRoute();
-    window.addEventListener('popstate', syncRoute);
-    return () => window.removeEventListener('popstate', syncRoute);
-  }, [data.elections]);
+    }
 
-  const navigateTo = (path) => {
-    window.history.pushState({}, '', path);
-    setCurrentPath(path);
-  };
+    setLoading(false);
+  }
 
-  const isVotingPage = currentPath.startsWith('/votacao/');
+  useEffect(() => {
+    loadData();
+  }, []);
 
-  const addElection = () => {
-    if (!adminClassName.trim()) {
-      setMessage('Informe a turma para criar a eleição.');
+  async function createElection() {
+    if (!className.trim()) {
+      setMessage('Informe a turma.');
       return;
     }
-    const positions = adminPositions.split(',').map((i) => i.trim()).filter(Boolean);
-    if (!positions.length) {
-      setMessage('Cadastre pelo menos um cargo.');
+
+    const positions = positionsText
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+    if (positions.length === 0) {
+      setMessage('Informe ao menos um cargo.');
       return;
     }
-    const classLabel = adminClassName.trim();
-    const accessCode = `${slugify(classLabel)}-${uid().slice(0, 4)}`;
-    const election = {
-      id: uid(),
-      schoolName: adminSchoolName.trim() || 'Colégio Estadual Rodolfo de Queiroz',
-      className: classLabel,
-      title: adminTitle.trim() || `Eleição da Turma ${classLabel}`,
-      description: adminDescription.trim(),
-      status: 'aberta',
-      accessCode,
-      positions,
-      candidates: [],
-      votes: [],
-    };
-    setData((prev) => ({ ...prev, elections: [...prev.elections, election] }));
-    setSelectedElectionId(election.id);
-    setAdminClassName('');
-    setAdminTitle('');
-    setAdminDescription('');
-    setAdminPositions(DEFAULT_POSITIONS.join(', '));
-    setMessage(`Turma criada. Link: /votacao/${accessCode}`);
-  };
 
-  const toggleElectionStatus = (electionId) => {
-    setData((prev) => ({
-      ...prev,
-      elections: prev.elections.map((e) =>
-        e.id === electionId ? { ...e, status: e.status === 'aberta' ? 'encerrada' : 'aberta' } : e
-      ),
-    }));
-  };
+    const accessCode = `${slugify(className)}-${uid().slice(0, 4)}`;
 
-  const removeElection = (electionId) => {
-    setData((prev) => ({ ...prev, elections: prev.elections.filter((e) => e.id !== electionId) }));
-  };
+    const { data: createdElection, error: electionError } = await supabase
+      .from('elections')
+      .insert({
+        school_name: 'Colégio Estadual Rodolfo de Queiroz',
+        class_name: className.trim(),
+        title: title.trim() || `Eleição da Turma ${className.trim()}`,
+        description: description.trim(),
+        status: 'aberta',
+        access_code: accessCode,
+      })
+      .select()
+      .single();
 
-  const handlePhotoUpload = (event) => {
+    if (electionError) {
+      setMessage(`Erro ao cadastrar eleição: ${electionError.message}`);
+      return;
+    }
+
+    const { error: positionsError } = await supabase.from('positions').insert(
+      positions.map((name) => ({ election_id: createdElection.id, name }))
+    );
+
+    if (positionsError) {
+      setMessage(`Erro ao cadastrar cargos: ${positionsError.message}`);
+      return;
+    }
+
+    setClassName('');
+    setTitle('');
+    setDescription('');
+    setPositionsText(DEFAULT_POSITIONS.join(', '));
+    setMessage('Turma criada com sucesso.');
+    await loadData();
+  }
+
+  function handlePhotoUpload(event) {
     const file = event.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => setCandidatePhoto(String(reader.result || ''));
     reader.readAsDataURL(file);
-  };
+  }
 
-  const addCandidate = () => {
-    if (!selectedAdminElection || !candidateName.trim() || !candidatePosition.trim()) {
-      setMessage('Informe nome e cargo do candidato.');
+  async function addCandidate() {
+    if (!selectedElectionId || !candidateName.trim() || !candidatePositionId) {
+      setMessage('Selecione a turma, o cargo e o nome do candidato.');
       return;
     }
-    const candidate = {
-      id: uid(),
+
+    const { error } = await supabase.from('candidates').insert({
+      election_id: selectedElectionId,
+      position_id: candidatePositionId,
       name: candidateName.trim(),
-      position: candidatePosition,
-      number: candidateNumber.trim() || String(selectedAdminElection.candidates.length + 1),
-      photo: candidatePhoto,
-    };
-    setData((prev) => ({
-      ...prev,
-      elections: prev.elections.map((e) =>
-        e.id === selectedAdminElection.id ? { ...e, candidates: [...e.candidates, candidate] } : e
-      ),
-    }));
+      number: candidateNumber.trim(),
+      photo_url: candidatePhoto,
+    });
+
+    if (error) {
+      setMessage(`Erro ao cadastrar candidato: ${error.message}`);
+      return;
+    }
+
     setCandidateName('');
-    setCandidatePosition('');
+    setCandidatePositionId('');
     setCandidateNumber('');
     setCandidatePhoto('');
     setMessage('Candidato cadastrado com sucesso.');
-  };
+    await loadData();
+  }
 
-  const removeCandidate = (electionId, candidateId) => {
-    setData((prev) => ({
-      ...prev,
-      elections: prev.elections.map((e) =>
-        e.id === electionId ? { ...e, candidates: e.candidates.filter((c) => c.id !== candidateId) } : e
-      ),
-    }));
-  };
+  async function deleteCandidate(candidateId) {
+    const { error } = await supabase.from('candidates').delete().eq('id', candidateId);
+    if (error) {
+      setMessage(`Erro ao excluir candidato: ${error.message}`);
+      return;
+    }
+    setMessage('Candidato excluído com sucesso.');
+    await loadData();
+  }
 
-  const accessElectionByCode = () => {
-    const code = accessCodeInput.trim().replace('/votacao/', '');
-    const election = elections.find((e) => e.accessCode === code);
-    if (!election) {
+  async function deleteElection(electionId) {
+    const { error } = await supabase.from('elections').delete().eq('id', electionId);
+    if (error) {
+      setMessage(`Erro ao excluir turma: ${error.message}`);
+      return;
+    }
+    setMessage('Turma excluída com sucesso.');
+    await loadData();
+  }
+
+  async function toggleElectionStatus(election) {
+    const { error } = await supabase
+      .from('elections')
+      .update({ status: election.status === 'aberta' ? 'encerrada' : 'aberta' })
+      .eq('id', election.id);
+
+    if (error) {
+      setMessage(`Erro ao atualizar status: ${error.message}`);
+      return;
+    }
+
+    setMessage('Status atualizado com sucesso.');
+    await loadData();
+  }
+
+  function accessElectionByCode() {
+    const code = accessCodeInput.replace('/votacao/', '').trim();
+    if (!code) {
+      setMessage('Informe o código da turma.');
+      return;
+    }
+    window.location.href = `${window.location.origin}/votacao/${code}`;
+  }
+
+  async function submitVote() {
+    if (!currentElection) {
       setMessage('Turma não encontrada.');
       return;
     }
-    setAuthenticatedElectionId(election.id);
-    setSelectedVotes({});
-    navigateTo(`/votacao/${election.accessCode}`);
-  };
 
-  const submitVote = () => {
     const cpf = cleanCPF(voterCPF);
-    if (!voterName.trim() || cpf.length !== 11 || !authenticatedElection) {
-      setMessage('Preencha nome, CPF e acesse a turma.');
+    if (!voterName.trim() || cpf.length !== 11) {
+      setMessage('Preencha nome e CPF corretamente.');
       return;
     }
-    if (authenticatedElection.status !== 'aberta') {
+
+    if (currentElection.status !== 'aberta') {
       setMessage('Esta eleição está encerrada.');
       return;
     }
-    const missing = authenticatedElection.positions.filter((position) => !selectedVotes[position]);
-    if (missing.length) {
-      setMessage('Escolha um único candidato para cada cargo.');
+
+    const positionsWithCandidates = currentElection.positions.filter((position) =>
+      currentElection.candidates.some((candidate) => candidate.positionId === position.id)
+    );
+
+    if (positionsWithCandidates.length === 0) {
+      setMessage('Esta turma ainda não possui candidatos cadastrados.');
       return;
     }
-    const alreadyVoted = authenticatedElection.votes.some((v) => v.cpf === cpf);
-    if (alreadyVoted) {
+
+    const missingPositions = positionsWithCandidates.filter((position) => !selectedVotes[position.id]);
+    if (missingPositions.length > 0) {
+      setMessage('Escolha um candidato para cada cargo disponível.');
+      return;
+    }
+
+    const { data: existingVoter } = await supabase
+      .from('voters')
+      .select('id')
+      .eq('election_id', currentElection.id)
+      .eq('cpf', cpf)
+      .maybeSingle();
+
+    if (existingVoter) {
       setMessage('Este CPF já votou nesta turma.');
       return;
     }
-    const choices = authenticatedElection.positions.map((position) => ({
-      position,
-      candidateId: selectedVotes[position],
-    }));
-    setData((prev) => ({
-      ...prev,
-      elections: prev.elections.map((e) =>
-        e.id === authenticatedElection.id
-          ? {
-              ...e,
-              votes: [
-                ...e.votes,
-                { id: uid(), voterName: voterName.trim(), cpf, choices, createdAt: new Date().toISOString() },
-              ],
-            }
-          : e
-      ),
-    }));
+
+    const { data: createdVoter, error: voterError } = await supabase
+      .from('voters')
+      .insert({
+        election_id: currentElection.id,
+        voter_name: voterName.trim(),
+        cpf,
+      })
+      .select()
+      .single();
+
+    if (voterError) {
+      setMessage(`Erro ao registrar votante: ${voterError.message}`);
+      return;
+    }
+
+    const { error: votesError } = await supabase.from('votes').insert(
+      positionsWithCandidates.map((position) => ({
+        election_id: currentElection.id,
+        voter_id: createdVoter.id,
+        position_id: position.id,
+        candidate_id: selectedVotes[position.id],
+      }))
+    );
+
+    if (votesError) {
+      setMessage(`Erro ao registrar votos: ${votesError.message}`);
+      return;
+    }
+
     setVoterName('');
     setVoterCPF('');
     setSelectedVotes({});
-    setMessage('Votação registrada com sucesso.');
-  };
+    setMessage('Voto registrado com sucesso.');
+    await loadData();
+  }
 
-  const getElectionResults = (election) => {
+  function getResultsByPosition(election) {
     return election.positions.map((position) => {
-      const ranked = election.candidates
-        .filter((c) => c.position === position)
+      const candidates = election.candidates.filter((candidate) => candidate.positionId === position.id);
+      const totalVotes = election.votes.filter((vote) =>
+        vote.choices.some((choice) => choice.positionId === position.id)
+      ).length;
+
+      const ranked = candidates
         .map((candidate) => {
-          const votes = election.votes.filter((vote) =>
-            vote.choices.some((choice) => choice.position === position && choice.candidateId === candidate.id)
+          const candidateVotes = election.votes.filter((vote) =>
+            vote.choices.some(
+              (choice) => choice.positionId === position.id && choice.candidateId === candidate.id
+            )
           ).length;
-          const percent = election.votes.length ? ((votes / election.votes.length) * 100).toFixed(1) : '0.0';
-          return { ...candidate, votes, percent };
+
+          return {
+            ...candidate,
+            totalVotes: candidateVotes,
+            percent: totalVotes > 0 ? ((candidateVotes / totalVotes) * 100).toFixed(1) : '0.0',
+          };
         })
-        .sort((a, b) => b.votes - a.votes);
+        .sort((a, b) => b.totalVotes - a.totalVotes);
+
       return { position, ranked };
     });
-  };
+  }
 
-  const handleAdminLogin = () => {
-    if (adminPassword === ADMIN_PASSWORD) {
-      setIsAdminAuthenticated(true);
-      navigateTo('/admin');
-      setMessage('Acesso liberado.');
-    } else {
-      setMessage('Senha incorreta.');
-    }
-  };
+  if (loading) {
+    return <div style={styles.loading}>Carregando...</div>;
+  }
 
-  const handleLogout = () => {
-    setIsAdminAuthenticated(false);
-    setAdminPassword('');
-    navigateTo('/');
-  };
+  if (isVotingPage) {
+    return (
+      <div style={styles.page}>
+        <div style={styles.banner}>
+          <div>
+            <h1 style={styles.bannerTitle}>Sistema de Eleição de Líderes</h1>
+            <p style={styles.bannerSubtitle}>Colégio Estadual Rodolfo de Queiroz</p>
+          </div>
+        </div>
+
+        {message ? <div style={styles.alert}>{message}</div> : null}
+
+        <div style={styles.cardLarge}>
+          <h2 style={styles.title}>Votação da turma</h2>
+
+          <div style={styles.field}>
+            <label style={styles.label}>Código ou link da turma</label>
+            <input
+              style={styles.input}
+              value={accessCodeInput}
+              onChange={(e) => setAccessCodeInput(e.target.value)}
+              placeholder="Digite o código da turma"
+            />
+          </div>
+
+          <button style={styles.primaryButton} onClick={accessElectionByCode}>
+            Acessar turma
+          </button>
+
+          {currentElection ? (
+            <>
+              <div style={{ marginTop: 20 }}>
+                <h3 style={{ marginBottom: 8 }}>{currentElection.className}</h3>
+                <p style={{ color: '#555' }}>
+                  {currentElection.description || 'Escolha um candidato para cada cargo disponível.'}
+                </p>
+              </div>
+
+              <div style={styles.field}>
+                <label style={styles.label}>Nome completo</label>
+                <input style={styles.input} value={voterName} onChange={(e) => setVoterName(e.target.value)} />
+              </div>
+
+              <div style={styles.field}>
+                <label style={styles.label}>CPF</label>
+                <input
+                  style={styles.input}
+                  value={voterCPF}
+                  onChange={(e) => setVoterCPF(formatCPF(e.target.value))}
+                  placeholder="000.000.000-00"
+                />
+              </div>
+
+              {currentElection.positions
+                .filter((position) => currentElection.candidates.some((candidate) => candidate.positionId === position.id))
+                .map((position) => {
+                  const positionCandidates = currentElection.candidates.filter(
+                    (candidate) => candidate.positionId === position.id
+                  );
+
+                  return (
+                    <div key={position.id} style={styles.positionBox}>
+                      <h3 style={{ marginBottom: 6 }}>{position.name}</h3>
+                      <p style={{ color: '#666', marginBottom: 12 }}>Selecione um e somente um candidato.</p>
+
+                      <div style={styles.candidateGrid}>
+                        {positionCandidates.map((candidate) => {
+                          const active = selectedVotes[position.id] === candidate.id;
+                          return (
+                            <button
+                              key={candidate.id}
+                              onClick={() =>
+                                setSelectedVotes((prev) => ({
+                                  ...prev,
+                                  [position.id]: candidate.id,
+                                }))
+                              }
+                              style={{
+                                ...styles.candidateButton,
+                                ...(active ? styles.candidateButtonActive : {}),
+                              }}
+                            >
+                              <div style={styles.candidateInfo}>
+                                {candidate.photo ? (
+                                  <img src={candidate.photo} alt={candidate.name} style={styles.avatar} />
+                                ) : (
+                                  <div style={styles.avatarPlaceholder} />
+                                )}
+                                <div>
+                                  <div style={styles.candidateName}>{candidate.name}</div>
+                                  <div style={styles.candidateMeta}>Nº {candidate.number}</div>
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+
+              <button style={styles.primaryButton} onClick={submitVote}>
+                Confirmar votação
+              </button>
+            </>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAdminAuthenticated) {
+    return (
+      <div style={styles.page}>
+        <div style={styles.banner}>
+          <div>
+            <h1 style={styles.bannerTitle}>Sistema de Eleição de Líderes</h1>
+            <p style={styles.bannerSubtitle}>Colégio Estadual Rodolfo de Queiroz</p>
+          </div>
+        </div>
+
+        {message ? <div style={styles.alert}>{message}</div> : null}
+
+        <div style={styles.loginCard}>
+          <h2 style={styles.title}>Acesso do administrador</h2>
+          <p style={styles.text}>Somente a administração acessa cadastro de candidatos, turmas e apuração.</p>
+
+          <div style={styles.field}>
+            <label style={styles.label}>Usuário administrador</label>
+            <input
+              style={styles.input}
+              value={adminUsername}
+              onChange={(e) => setAdminUsername(e.target.value)}
+              placeholder="Digite o usuário"
+            />
+          </div>
+
+          <div style={styles.field}>
+            <label style={styles.label}>Senha</label>
+            <input
+              type="password"
+              style={styles.input}
+              value={adminPassword}
+              onChange={(e) => setAdminPassword(e.target.value)}
+              placeholder="Digite a senha"
+            />
+          </div>
+
+          <button
+            style={styles.primaryButton}
+            onClick={() => {
+              if (adminUsername.trim() === ADMIN_USERNAME && adminPassword === ADMIN_PASSWORD) {
+                setIsAdminAuthenticated(true);
+                setMessage('Acesso liberado.');
+              } else {
+                setMessage('Usuário ou senha inválidos.');
+              }
+            }}
+          >
+            Entrar
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="app-shell">
-      <header className="hero">
+    <div style={styles.page}>
+      <div style={styles.banner}>
         <div>
-          <h1>Sistema de Eleição de Líderes</h1>
-          <p>Colégio Estadual Rodolfo de Queiroz</p>
+          <h1 style={styles.bannerTitle}>Sistema de Eleição de Líderes</h1>
+          <p style={styles.bannerSubtitle}>Colégio Estadual Rodolfo de Queiroz</p>
         </div>
-        <div className="stats">
-          <div className="stat"><strong>{elections.length}</strong><span>Turmas</span></div>
-          <div className="stat"><strong>{elections.reduce((a, e) => a + e.candidates.length, 0)}</strong><span>Candidatos</span></div>
-          <div className="stat"><strong>{elections.reduce((a, e) => a + e.votes.length, 0)}</strong><span>Votantes</span></div>
+      </div>
+
+      {message ? <div style={styles.alert}>{message}</div> : null}
+
+      <div style={styles.topBar}>
+        <button style={styles.secondaryButton} onClick={() => setIsAdminAuthenticated(false)}>
+          Sair
+        </button>
+      </div>
+
+      <div style={styles.grid2}>
+        <div style={styles.card}>
+          <h2 style={styles.title}>Nova eleição por turma</h2>
+
+          <div style={styles.field}>
+            <label style={styles.label}>Turma</label>
+            <input style={styles.input} value={className} onChange={(e) => setClassName(e.target.value)} />
+          </div>
+
+          <div style={styles.field}>
+            <label style={styles.label}>Título da eleição</label>
+            <input style={styles.input} value={title} onChange={(e) => setTitle(e.target.value)} />
+          </div>
+
+          <div style={styles.field}>
+            <label style={styles.label}>Descrição</label>
+            <input style={styles.input} value={description} onChange={(e) => setDescription(e.target.value)} />
+          </div>
+
+          <div style={styles.field}>
+            <label style={styles.label}>Cargos</label>
+            <input style={styles.input} value={positionsText} onChange={(e) => setPositionsText(e.target.value)} />
+          </div>
+
+          <button style={styles.primaryButton} onClick={createElection}>
+            Cadastrar eleição
+          </button>
         </div>
-      </header>
 
-      {message && <div className="message">{message}</div>}
+        <div style={styles.card}>
+          <h2 style={styles.title}>Cadastrar candidato</h2>
 
-      {!isVotingPage ? (
-        !isAdminAuthenticated ? (
-          <section className="card login-card">
-            <h2>Acesso do administrador</h2>
-            <p>Somente a administração acessa cadastro de candidatos, turmas e apuração.</p>
-            <label>Senha do administrador</label>
-            <input type="password" value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} />
-            <button onClick={handleAdminLogin}>Entrar</button>
-            <small>Senha de demonstração: admin123</small>
-          </section>
-        ) : (
-          <>
-            <div className="top-actions"><button className="secondary" onClick={handleLogout}>Sair da administração</button></div>
-            <div className="grid two">
-              <section className="card">
-                <h2>Nova eleição por turma</h2>
-                <label>Nome da escola</label>
-                <input value={adminSchoolName} onChange={(e) => setAdminSchoolName(e.target.value)} />
-                <label>Turma</label>
-                <input value={adminClassName} onChange={(e) => setAdminClassName(e.target.value)} placeholder="Ex.: 2º Ano B" />
-                <label>Título da eleição</label>
-                <input value={adminTitle} onChange={(e) => setAdminTitle(e.target.value)} placeholder="Ex.: Eleição da turma" />
-                <label>Descrição</label>
-                <input value={adminDescription} onChange={(e) => setAdminDescription(e.target.value)} placeholder="Descreva a votação" />
-                <label>Cargos</label>
-                <input value={adminPositions} onChange={(e) => setAdminPositions(e.target.value)} placeholder="Líder, Vice-líder, ..." />
-                <button onClick={addElection}>Cadastrar eleição</button>
-              </section>
+          <div style={styles.field}>
+            <label style={styles.label}>Selecione a turma</label>
+            <select
+              style={styles.input}
+              value={selectedElectionId}
+              onChange={(e) => {
+                setSelectedElectionId(e.target.value);
+                setCandidatePositionId('');
+              }}
+            >
+              <option value="">Selecione</option>
+              {elections.map((election) => (
+                <option key={election.id} value={election.id}>
+                  {election.className}
+                </option>
+              ))}
+            </select>
+          </div>
 
-              <section className="card">
-                <h2>Cadastrar candidato</h2>
-                <label>Turma</label>
-                <select value={selectedElectionId} onChange={(e) => setSelectedElectionId(e.target.value)}>
-                  {elections.map((e) => <option key={e.id} value={e.id}>{e.className}</option>)}
-                </select>
-                <label>Nome do candidato</label>
-                <input value={candidateName} onChange={(e) => setCandidateName(e.target.value)} />
-                <label>Cargo</label>
-                <select value={candidatePosition} onChange={(e) => setCandidatePosition(e.target.value)}>
-                  <option value="">Selecione</option>
-                  {(selectedAdminElection?.positions || []).map((position) => (
-                    <option key={position} value={position}>{position}</option>
-                  ))}
-                </select>
-                <label>Número</label>
-                <input value={candidateNumber} onChange={(e) => setCandidateNumber(e.target.value)} />
-                <label>Foto do candidato</label>
-                <input type="file" accept="image/*" onChange={handlePhotoUpload} />
-                {candidatePhoto && <img className="thumb" src={candidatePhoto} alt="prévia" />}
-                <button onClick={addCandidate}>Adicionar candidato</button>
-              </section>
-            </div>
+          <div style={styles.field}>
+            <label style={styles.label}>Nome do candidato</label>
+            <input style={styles.input} value={candidateName} onChange={(e) => setCandidateName(e.target.value)} />
+          </div>
 
-            <section className="card">
-              <h2>Painel das turmas</h2>
-              <div className="grid three">
-                {elections.map((election) => (
-                  <article key={election.id} className="panel-item">
-                    <div className="row space-between">
+          <div style={styles.field}>
+            <label style={styles.label}>Cargo disputado</label>
+            <select
+              style={styles.input}
+              value={candidatePositionId}
+              onChange={(e) => setCandidatePositionId(e.target.value)}
+            >
+              <option value="">Selecione</option>
+              {(selectedElection?.positions || []).map((position) => (
+                <option key={position.id} value={position.id}>
+                  {position.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div style={styles.field}>
+            <label style={styles.label}>Número do candidato</label>
+            <input style={styles.input} value={candidateNumber} onChange={(e) => setCandidateNumber(e.target.value)} />
+          </div>
+
+          <div style={styles.field}>
+            <label style={styles.label}>Foto do candidato</label>
+            <input type="file" accept="image/*" onChange={handlePhotoUpload} />
+          </div>
+
+          <button style={styles.primaryButton} onClick={addCandidate}>
+            Adicionar candidato
+          </button>
+        </div>
+      </div>
+
+      <div style={styles.card}>
+        <h2 style={styles.title}>Painel das turmas</h2>
+
+        <div style={styles.panelGrid}>
+          {elections.map((election) => (
+            <div key={election.id} style={styles.panelCard}>
+              <div style={styles.panelHeader}>
+                <div>
+                  <h3 style={{ margin: 0 }}>{election.className}</h3>
+                  <p style={{ marginTop: 8 }}>{election.title}</p>
+                </div>
+                <span style={styles.statusBadge}>
+                  {election.status === 'aberta' ? 'ABERTA' : 'ENCERRADA'}
+                </span>
+              </div>
+
+              <p><strong>Cargos:</strong> {election.positions.length}</p>
+              <p><strong>Candidatos:</strong> {election.candidates.length}</p>
+              <p><strong>Votantes:</strong> {election.votes.length}</p>
+
+              <div style={styles.linkBox}>{`${window.location.origin}/votacao/${election.accessCode}`}</div>
+
+              <div style={styles.buttonRow}>
+                <button style={styles.secondaryButton} onClick={() => toggleElectionStatus(election)}>
+                  {election.status === 'aberta' ? 'Encerrar' : 'Reabrir'}
+                </button>
+
+                <button style={styles.dangerButton} onClick={() => deleteElection(election.id)}>
+                  Excluir turma
+                </button>
+              </div>
+
+              <div style={{ marginTop: 20 }}>
+                {election.candidates.map((candidate) => (
+                  <div key={candidate.id} style={styles.candidateRow}>
+                    <div style={styles.candidateInfo}>
+                      {candidate.photo ? (
+                        <img src={candidate.photo} alt={candidate.name} style={styles.avatarSmall} />
+                      ) : (
+                        <div style={styles.avatarPlaceholderSmall} />
+                      )}
                       <div>
-                        <h3>{election.className}</h3>
-                        <p>{election.title}</p>
-                      </div>
-                      <span className={`badge ${election.status}`}>{election.status}</span>
-                    </div>
-                    <p><strong>Cargos:</strong> {election.positions.length}</p>
-                    <p><strong>Candidatos:</strong> {election.candidates.length}</p>
-                    <p><strong>Votantes:</strong> {election.votes.length}</p>
-                    <div className="link-box">/votacao/{election.accessCode}</div>
-                    <div className="actions-wrap">
-                      <button className="secondary" onClick={() => toggleElectionStatus(election.id)}>{election.status === 'aberta' ? 'Encerrar' : 'Reabrir'}</button>
-                      <button className="danger" onClick={() => removeElection(election.id)}>Excluir turma</button>
-                    </div>
-                    <div className="candidate-list compact">
-                      {election.candidates.map((candidate) => (
-                        <div key={candidate.id} className="candidate-row">
-                          <div className="row gap">
-                            {candidate.photo ? <img className="avatar" src={candidate.photo} alt={candidate.name} /> : <div className="avatar placeholder" />}
-                            <div>
-                              <strong>{candidate.name}</strong>
-                              <p>{candidate.position} · Nº {candidate.number}</p>
-                            </div>
-                          </div>
-                          <button className="danger small" onClick={() => removeCandidate(election.id, candidate.id)}>Excluir</button>
+                        <div style={styles.candidateName}>{candidate.name}</div>
+                        <div style={styles.candidateMeta}>
+                          {candidate.position} · Nº {candidate.number}
                         </div>
-                      ))}
+                      </div>
                     </div>
-                  </article>
+
+                    <button style={styles.dangerButtonSmall} onClick={() => deleteCandidate(candidate.id)}>
+                      Excluir
+                    </button>
+                  </div>
                 ))}
               </div>
-            </section>
+            </div>
+          ))}
+        </div>
+      </div>
 
-            <section className="card">
-              <h2>Apuração</h2>
-              {elections.map((election) => (
-                <div key={election.id} className="result-block">
-                  <h3>{election.className}</h3>
-                  <p>
-  <strong>Link:</strong>{" "}
-  <a
-    href={`${window.location.origin}/votacao/${election.accessCode}`}
-    target="_blank"
-    rel="noreferrer"
-  >
-    {`${window.location.origin}/votacao/${election.accessCode}`}
-  </a>
-</p>
-                  {getElectionResults(election).map((group) => (
-                    <div key={group.position} className="group-block">
-                      <h4>{group.position}</h4>
-                      {group.ranked.length === 0 ? <p>Sem candidatos.</p> : group.ranked.map((candidate) => (
-                        <div className="result-row" key={candidate.id}>
-                          <span>{candidate.name}</span>
-                          <span>{candidate.votes} voto(s) · {candidate.percent}%</span>
-                        </div>
-                      ))}
+      <div style={styles.card}>
+        <h2 style={styles.title}>Apuração</h2>
+
+        {elections.map((election) => (
+          <div key={election.id} style={{ marginBottom: 30 }}>
+            <h3>{election.className}</h3>
+            <p>
+              <strong>Link:</strong> {`${window.location.origin}/votacao/${election.accessCode}`}
+            </p>
+            {getResultsByPosition(election).map((group) => (
+              <div key={group.position.id} style={styles.groupBlock}>
+                <h4>{group.position.name}</h4>
+                {group.ranked.length === 0 ? (
+                  <p>Sem candidatos.</p>
+                ) : (
+                  group.ranked.map((candidate) => (
+                    <div style={styles.resultRow} key={candidate.id}>
+                      <span>{candidate.name}</span>
+                      <span>
+                        {candidate.totalVotes} voto(s) · {candidate.percent}%
+                      </span>
                     </div>
-                  ))}
-                </div>
-              ))}
-            </section>
-          </>
-        )
-      ) : (
-        <section className="card">
-          <h2>Votação da turma</h2>
-          <label>Código ou link da turma</label>
-          <div className="row gap">
-            <input value={accessCodeInput} onChange={(e) => setAccessCodeInput(e.target.value.replace('/votacao/', ''))} />
-            <button onClick={accessElectionByCode}>Acessar</button>
-          </div>
-
-          {authenticatedElection && (
-            <div className="highlight-box">
-              <h3>{authenticatedElection.className}</h3>
-              <p>{authenticatedElection.description || 'Escolha um único candidato para cada cargo.'}</p>
-            </div>
-          )}
-
-          <div className="grid two">
-            <div>
-              <label>Nome completo</label>
-              <input value={voterName} onChange={(e) => setVoterName(e.target.value)} />
-            </div>
-            <div>
-              <label>CPF</label>
-              <input value={voterCPF} onChange={(e) => setVoterCPF(formatCPF(e.target.value))} />
-            </div>
-          </div>
-
-          {authenticatedElection && authenticatedElection.positions.map((position) => {
-            const positionCandidates = authenticatedElection.candidates.filter((c) => c.position === position);
-            return (
-              <div key={position} className="position-block">
-                <h3>{position}</h3>
-                <p>Selecione um único candidato.</p>
-                <div className="grid three">
-                  {positionCandidates.map((candidate) => {
-                    const active = selectedVotes[position] === candidate.id;
-                    return (
-                      <button key={candidate.id} className={`candidate-card ${active ? 'selected' : ''}`} onClick={() => setSelectedVotes((prev) => ({ ...prev, [position]: candidate.id }))}>
-                        {candidate.photo ? <img className="avatar big" src={candidate.photo} alt={candidate.name} /> : <div className="avatar big placeholder" />}
-                        <strong>{candidate.name}</strong>
-                        <span>Nº {candidate.number}</span>
-                      </button>
-                    )
-                  })}
-                </div>
+                  ))
+                )}
               </div>
-            )
-          })}
-
-          <button onClick={submitVote}>Confirmar votação</button>
-        </section>
-      )}
+            ))}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
+
+const styles = {
+  loading: {
+    minHeight: '100vh',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontFamily: 'Arial, sans-serif',
+    fontSize: 18,
+  },
+  page: {
+    minHeight: '100vh',
+    background: '#f3f4f6',
+    padding: 20,
+    fontFamily: 'Arial, sans-serif',
+    color: '#0f172a',
+  },
+  banner: {
+    background: 'linear-gradient(90deg, #0f172a 0%, #334155 100%)',
+    borderRadius: 24,
+    padding: 28,
+    color: 'white',
+    marginBottom: 20,
+  },
+  bannerTitle: {
+    margin: 0,
+    fontSize: 24,
+    fontWeight: 700,
+  },
+  bannerSubtitle: {
+    marginTop: 10,
+    marginBottom: 0,
+    fontSize: 16,
+  },
+  alert: {
+    background: 'white',
+    border: '1px solid #cbd5e1',
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 20,
+  },
+  loginCard: {
+    maxWidth: 520,
+    background: 'white',
+    borderRadius: 24,
+    padding: 28,
+    margin: '0 auto',
+    border: '1px solid #e2e8f0',
+  },
+  cardLarge: {
+    maxWidth: 920,
+    background: 'white',
+    borderRadius: 24,
+    padding: 28,
+    margin: '0 auto',
+    border: '1px solid #e2e8f0',
+  },
+  card: {
+    background: 'white',
+    borderRadius: 24,
+    padding: 24,
+    marginBottom: 24,
+    border: '1px solid #e2e8f0',
+  },
+  title: {
+    marginTop: 0,
+    marginBottom: 20,
+    fontSize: 22,
+  },
+  text: {
+    marginTop: 0,
+    marginBottom: 20,
+    lineHeight: 1.5,
+  },
+  field: {
+    marginBottom: 16,
+  },
+  label: {
+    display: 'block',
+    marginBottom: 8,
+    fontWeight: 600,
+  },
+  input: {
+    width: '100%',
+    padding: '12px 14px',
+    borderRadius: 14,
+    border: '1px solid #cbd5e1',
+    fontSize: 16,
+    boxSizing: 'border-box',
+  },
+  primaryButton: {
+    background: '#0f172a',
+    color: 'white',
+    border: 'none',
+    borderRadius: 14,
+    padding: '12px 18px',
+    cursor: 'pointer',
+    fontSize: 16,
+  },
+  secondaryButton: {
+    background: '#e2e8f0',
+    color: '#0f172a',
+    border: 'none',
+    borderRadius: 14,
+    padding: '12px 18px',
+    cursor: 'pointer',
+    fontSize: 16,
+  },
+  dangerButton: {
+    background: '#ef4444',
+    color: 'white',
+    border: 'none',
+    borderRadius: 14,
+    padding: '12px 18px',
+    cursor: 'pointer',
+    fontSize: 16,
+  },
+  dangerButtonSmall: {
+    background: '#ef4444',
+    color: 'white',
+    border: 'none',
+    borderRadius: 12,
+    padding: '10px 14px',
+    cursor: 'pointer',
+    fontSize: 14,
+  },
+  topBar: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    marginBottom: 20,
+  },
+  grid2: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+    gap: 20,
+    marginBottom: 24,
+  },
+  panelGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+    gap: 20,
+  },
+  panelCard: {
+    border: '1px solid #dbe3ef',
+    borderRadius: 24,
+    padding: 20,
+    background: '#fafafa',
+  },
+  panelHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 18,
+  },
+  statusBadge: {
+    background: '#dcfce7',
+    color: '#166534',
+    borderRadius: 999,
+    padding: '10px 14px',
+    fontSize: 14,
+  },
+  linkBox: {
+    display: 'block',
+    marginTop: 14,
+    marginBottom: 16,
+    padding: '12px 14px',
+    borderRadius: 14,
+    border: '1px dashed #94a3b8',
+    color: '#0f172a',
+    wordBreak: 'break-all',
+    textDecoration: 'none',
+  },
+  buttonRow: {
+    display: 'flex',
+    gap: 12,
+    flexWrap: 'wrap',
+    marginBottom: 16,
+  },
+  candidateRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+    padding: '14px 0',
+    borderTop: '1px solid #e5e7eb',
+  },
+  candidateInfo: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 14,
+    textAlign: 'left',
+  },
+  candidateName: {
+    fontWeight: 700,
+    marginBottom: 6,
+  },
+  candidateMeta: {
+    color: '#334155',
+  },
+  avatar: {
+    width: 64,
+    height: 64,
+    borderRadius: '50%',
+    objectFit: 'cover',
+    background: '#e5e7eb',
+  },
+  avatarSmall: {
+    width: 48,
+    height: 48,
+    borderRadius: '50%',
+    objectFit: 'cover',
+    background: '#e5e7eb',
+  },
+  avatarPlaceholder: {
+    width: 64,
+    height: 64,
+    borderRadius: '50%',
+    background: '#e5e7eb',
+  },
+  avatarPlaceholderSmall: {
+    width: 48,
+    height: 48,
+    borderRadius: '50%',
+    background: '#e5e7eb',
+  },
+  positionBox: {
+    marginTop: 20,
+    marginBottom: 20,
+    border: '1px solid #e2e8f0',
+    borderRadius: 20,
+    padding: 18,
+  },
+  candidateGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+    gap: 14,
+  },
+  candidateButton: {
+    border: '1px solid #cbd5e1',
+    background: 'white',
+    borderRadius: 18,
+    padding: 14,
+    cursor: 'pointer',
+  },
+  candidateButtonActive: {
+    border: '2px solid #0f172a',
+    background: '#e2e8f0',
+  },
+  groupBlock: {
+    marginTop: 16,
+    marginBottom: 20,
+    border: '1px solid #e2e8f0',
+    borderRadius: 18,
+    padding: 16,
+    background: '#fafafa',
+  },
+  resultRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: 12,
+    padding: '8px 0',
+    borderTop: '1px solid #e5e7eb',
+  },
+};
