@@ -405,7 +405,16 @@ export default function App() {
               {elections.map((election) => (
                 <div key={election.id} className="result-block">
                   <h3>{election.className}</h3>
-                  <p><strong>Link:</strong> /votacao/{election.accessCode}</p>
+                  <p>
+  <strong>Link:</strong>{" "}
+  <a
+    href={`${window.location.origin}/votacao/${election.accessCode}`}
+    target="_blank"
+    rel="noreferrer"
+  >
+    {`${window.location.origin}/votacao/${election.accessCode}`}
+  </a>
+</p>
                   {getElectionResults(election).map((group) => (
                     <div key={group.position} className="group-block">
                       <h4>{group.position}</h4>
