@@ -1,1294 +1,898 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import React, { useEffect, useMemo, useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Trash2, Vote, UserPlus, BarChart3, ShieldCheck, PlusCircle, Users, ImagePlus, Link2, School } from "lucide-react";
+import { motion } from "framer-motion";
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const uid = () => Math.random().toString(36).slice(2, 10);
+
+const formatCPF = (value) => {
+  const digits = value.replace(/\D/g, "").slice(0, 11);
+  return digits
+    .replace(/(\d{3})(\d)/, "$1.$2")
+    .replace(/(\d{3})(\d)/, "$1.$2")
+    .replace(/(\d{3})(\d{1,2})$/, "$1-$2");
+};
+
+const cleanCPF = (cpf) => cpf.replace(/\D/g, "");
+
+const slugify = (text) =>
+  text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
 
 const DEFAULT_POSITIONS = [
-  'Líder',
-  'Vice-líder',
-  'Representante Indígena',
-  'Representante LGBTQIA+',
-  'Representante de Segmento',
+  "Líder",
+  "Vice-líder",
+  "Representante Indígena",
+  "Representante LGBTQIA+",
+  "Representante de Segmento",
 ];
 
-const ADMIN_USERNAME = 'CERQ';
-const ADMIN_PASSWORD = '1234';
+const initialData = {
+  elections: [
+    {
+      id: uid(),
+      schoolName: "Colégio Estadual Rodolfo de Queiroz",
+      className: "1º Ano A",
+      title: "Eleição da Turma 1º Ano A",
+      description: "Escolha da representação estudantil da turma.",
+      status: "aberta",
+      accessCode: "1anoa-rodolfo-queiroz",
+      positions: DEFAULT_POSITIONS,
+      candidates: [
+        {
+          id: uid(),
+          name: "Ana Clara",
+          position: "Líder",
+          number: "10",
+          photo: "",
+        },
+        {
+          id: uid(),
+          name: "João Pedro",
+          position: "Vice-líder",
+          number: "20",
+          photo: "",
+        },
+      ],
+      votes: [],
+    },
+  ],
+};
 
-function uid() {
-  return Math.random().toString(36).slice(2, 10);
-}
+const ADMIN_PASSWORD = "admin123";
+const STORAGE_KEY = "sistema-votacao-rodolfo-queiroz";
 
-function slugify(text) {
-  return text
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/(^-|-$)/g, '');
-}
-
-function cleanCPF(cpf) {
-  return cpf.replace(/\D/g, '');
-}
-
-function formatCPF(value) {
-  const digits = value.replace(/\D/g, '').slice(0, 11);
-  return digits
-    .replace(/(\d{3})(\d)/, '$1.$2')
-    .replace(/(\d{3})(\d)/, '$1.$2')
-    .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
-}
-
-function groupElectionData(elections, positions, candidates, voters, votes) {
-  return elections.map((election) => {
-    const electionPositions = positions
-      .filter((position) => position.election_id === election.id)
-      .map((position) => ({ id: position.id, name: position.name }));
-
-    const electionCandidates = candidates
-      .filter((candidate) => candidate.election_id === election.id)
-      .map((candidate) => ({
-        id: candidate.id,
-        name: candidate.name,
-        number: candidate.number || '',
-        photo: candidate.photo_url || '',
-        positionId: candidate.position_id,
-        position:
-          electionPositions.find((position) => position.id === candidate.position_id)?.name || '',
-      }));
-
-    const electionVoters = voters.filter((voter) => voter.election_id === election.id);
-    const electionVotes = votes.filter((vote) => vote.election_id === election.id);
-
-    const mappedVotes = electionVoters.map((voter) => ({
-      id: voter.id,
-      voterName: voter.voter_name,
-      cpf: voter.cpf,
-      choices: electionVotes
-        .filter((vote) => vote.voter_id === voter.id)
-        .map((vote) => ({
-          positionId: vote.position_id,
-          position:
-            electionPositions.find((position) => position.id === vote.position_id)?.name || '',
-          candidateId: vote.candidate_id,
-        })),
-    }));
-
-    return {
-      id: election.id,
-      schoolName: election.school_name,
-      className: election.class_name,
-      title: election.title,
-      description: election.description || '',
-      status: election.status,
-      accessCode: election.access_code,
-      positions: electionPositions,
-      candidates: electionCandidates,
-      votes: mappedVotes,
-    };
+function App() {
+  const [data, setData] = useState(() => {
+    const saved = typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_KEY) : null;
+    return saved ? JSON.parse(saved) : initialData;
   });
-}
+  const [adminSchoolName, setAdminSchoolName] = useState("Colégio Estadual Rodolfo de Queiroz");
+  const [adminClassName, setAdminClassName] = useState("");
+  const [adminTitle, setAdminTitle] = useState("");
+  const [adminDescription, setAdminDescription] = useState("");
+  const [adminPositions, setAdminPositions] = useState(DEFAULT_POSITIONS.join(", "));
+  const [selectedElectionId, setSelectedElectionId] = useState(initialData.elections[0]?.id || "");
+  const [candidateName, setCandidateName] = useState("");
+  const [candidatePosition, setCandidatePosition] = useState("");
+  const [candidateNumber, setCandidateNumber] = useState("");
+  const [candidatePhoto, setCandidatePhoto] = useState("");
 
-export default function App() {
-  const [elections, setElections] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState('');
-  const [adminUsername, setAdminUsername] = useState('CERQ');
-  const [adminPassword, setAdminPassword] = useState('');
-  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
-
-  const [className, setClassName] = useState('');
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [positionsText, setPositionsText] = useState(DEFAULT_POSITIONS.join(', '));
-
-  const [selectedElectionId, setSelectedElectionId] = useState('');
-  const [candidateName, setCandidateName] = useState('');
-  const [candidatePositionId, setCandidatePositionId] = useState('');
-  const [candidateNumber, setCandidateNumber] = useState('');
-  const [candidatePhoto, setCandidatePhoto] = useState('');
-
-  const [editingElectionId, setEditingElectionId] = useState('');
-  const [editClassName, setEditClassName] = useState('');
-  const [editTitle, setEditTitle] = useState('');
-  const [editDescription, setEditDescription] = useState('');
-
-  const [editingCandidateId, setEditingCandidateId] = useState('');
-  const [editCandidateElectionId, setEditCandidateElectionId] = useState('');
-  const [editCandidateName, setEditCandidateName] = useState('');
-  const [editCandidatePositionId, setEditCandidatePositionId] = useState('');
-  const [editCandidateNumber, setEditCandidateNumber] = useState('');
-  const [editCandidatePhoto, setEditCandidatePhoto] = useState('');
-
-  const [accessCodeInput, setAccessCodeInput] = useState('');
-  const [currentElectionId, setCurrentElectionId] = useState('');
-  const [voterName, setVoterName] = useState('');
-  const [voterCPF, setVoterCPF] = useState('');
+  const [accessCodeInput, setAccessCodeInput] = useState(initialData.elections[0]?.accessCode || "");
+  const [authenticatedElectionId, setAuthenticatedElectionId] = useState(initialData.elections[0]?.id || "");
+  const [voterName, setVoterName] = useState("");
+  const [voterCPF, setVoterCPF] = useState("");
   const [selectedVotes, setSelectedVotes] = useState({});
+  const [message, setMessage] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
+  const [currentPath, setCurrentPath] = useState(typeof window !== "undefined" ? window.location.pathname : "/admin");
 
-  const isVotingPage = window.location.pathname.startsWith('/votacao/');
+  const elections = data.elections;
 
-  const selectedElection = useMemo(
-    () => elections.find((election) => election.id === selectedElectionId),
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    }
+  }, [data]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const syncRoute = () => {
+      setCurrentPath(window.location.pathname || "/admin");
+      const parts = (window.location.pathname || "").split("/").filter(Boolean);
+      if (parts[0] === "votacao" && parts[1]) {
+        const election = data.elections.find((e) => e.accessCode === parts[1]);
+        if (election) {
+          setAuthenticatedElectionId(election.id);
+          setAccessCodeInput(election.accessCode);
+        }
+      }
+    };
+
+    syncRoute();
+    window.addEventListener("popstate", syncRoute);
+    return () => window.removeEventListener("popstate", syncRoute);
+  }, [data.elections]);
+
+  const navigateTo = (path) => {
+    if (typeof window !== "undefined") {
+      window.history.pushState({}, "", path);
+      setCurrentPath(path);
+    }
+  };
+
+  const isVotingPage = currentPath.startsWith("/votacao/");
+
+  const selectedAdminElection = useMemo(
+    () => elections.find((e) => e.id === selectedElectionId),
     [elections, selectedElectionId]
   );
 
-  const currentElection = useMemo(
-    () => elections.find((election) => election.id === currentElectionId),
-    [elections, currentElectionId]
+  const authenticatedElection = useMemo(
+    () => elections.find((e) => e.id === authenticatedElectionId),
+    [elections, authenticatedElectionId]
   );
 
-  const editingCandidateElection = useMemo(
-    () => elections.find((election) => election.id === editCandidateElectionId),
-    [elections, editCandidateElectionId]
-  );
+  const totalVotesAll = elections.reduce((acc, election) => acc + election.votes.length, 0);
+  const totalCandidatesAll = elections.reduce((acc, election) => acc + election.candidates.length, 0);
 
-  async function loadData() {
-    setLoading(true);
-    const [{ data: electionsData, error: electionsError }, { data: positionsData, error: positionsError }, { data: candidatesData, error: candidatesError }, { data: votersData, error: votersError }, { data: votesData, error: votesError }] = await Promise.all([
-      supabase.from('elections').select('*').order('created_at', { ascending: true }),
-      supabase.from('positions').select('*').order('created_at', { ascending: true }),
-      supabase.from('candidates').select('*').order('created_at', { ascending: true }),
-      supabase.from('voters').select('*').order('created_at', { ascending: true }),
-      supabase.from('votes').select('*').order('created_at', { ascending: true }),
-    ]);
-
-    const firstError = electionsError || positionsError || candidatesError || votersError || votesError;
-
-    if (firstError) {
-      setMessage(`Erro ao carregar dados: ${firstError.message}`);
-      setLoading(false);
+  const addElection = () => {
+    if (!adminClassName.trim()) {
+      setMessage("Informe a turma para criar a eleição.");
       return;
     }
 
-    const grouped = groupElectionData(
-      electionsData || [],
-      positionsData || [],
-      candidatesData || [],
-      votersData || [],
-      votesData || []
-    );
-
-    setElections(grouped);
-    setSelectedElectionId((current) => current || grouped[0]?.id || '');
-
-    const path = window.location.pathname;
-    if (path.startsWith('/votacao/')) {
-      const code = path.replace('/votacao/', '').trim();
-      const election = grouped.find((item) => item.accessCode === code);
-      if (election) {
-        setCurrentElectionId(election.id);
-        setAccessCodeInput(code);
-      }
-    }
-
-    setLoading(false);
-  }
-
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  async function createElection() {
-    if (!className.trim()) {
-      setMessage('Informe a turma.');
-      return;
-    }
-
-    const positions = positionsText
-      .split(',')
+    const positions = adminPositions
+      .split(",")
       .map((item) => item.trim())
       .filter(Boolean);
 
     if (positions.length === 0) {
-      setMessage('Informe ao menos um cargo.');
+      setMessage("Cadastre pelo menos um cargo para a turma.");
       return;
     }
 
-    const accessCode = `${slugify(className)}-${uid().slice(0, 4)}`;
-
-    const { data: createdElection, error: electionError } = await supabase
-      .from('elections')
-      .insert({
-        school_name: 'Colégio Estadual Rodolfo de Queiroz',
-        class_name: className.trim(),
-        title: title.trim() || `Eleição da Turma ${className.trim()}`,
-        description: description.trim(),
-        status: 'aberta',
-        access_code: accessCode,
-      })
-      .select()
-      .single();
-
-    if (electionError) {
-      setMessage(`Erro ao cadastrar eleição: ${electionError.message}`);
-      return;
-    }
-
-    const { error: positionsError } = await supabase.from('positions').insert(
-      positions.map((name) => ({ election_id: createdElection.id, name }))
-    );
-
-    if (positionsError) {
-      setMessage(`Erro ao cadastrar cargos: ${positionsError.message}`);
-      return;
-    }
-
-    setClassName('');
-    setTitle('');
-    setDescription('');
-    setPositionsText(DEFAULT_POSITIONS.join(', '));
-    setMessage('Turma criada com sucesso.');
-    await loadData();
-  }
-
-  function startEditElection(election) {
-    setEditingElectionId(election.id);
-    setEditClassName(election.className);
-    setEditTitle(election.title);
-    setEditDescription(election.description || '');
-    setMessage('');
-  }
-
-  function cancelEditElection() {
-    setEditingElectionId('');
-    setEditClassName('');
-    setEditTitle('');
-    setEditDescription('');
-  }
-
-  async function saveElectionEdit() {
-    if (!editingElectionId) return;
-    if (!editClassName.trim()) {
-      setMessage('Informe a turma para salvar a edição.');
-      return;
-    }
-
-    const payload = {
-      class_name: editClassName.trim(),
-      title: editTitle.trim() || `Eleição da Turma ${editClassName.trim()}`,
-      description: editDescription.trim(),
+    const classLabel = adminClassName.trim();
+    const generatedCode = `${slugify(classLabel)}-${uid().slice(0, 4)}`;
+    const newElection = {
+      id: uid(),
+      schoolName: adminSchoolName.trim() || "Colégio Estadual Rodolfo de Queiroz",
+      className: classLabel,
+      title: adminTitle.trim() || `Eleição da Turma ${classLabel}`,
+      description: adminDescription.trim(),
+      status: "aberta",
+      accessCode: generatedCode,
+      positions,
+      candidates: [],
+      votes: [],
     };
 
-    const { error } = await supabase.from('elections').update(payload).eq('id', editingElectionId);
-    if (error) {
-      setMessage(`Erro ao editar turma: ${error.message}`);
-      return;
-    }
+    setData((prev) => ({
+      ...prev,
+      elections: [...prev.elections, newElection],
+    }));
 
-    cancelEditElection();
-    setMessage('Turma atualizada com sucesso.');
-    await loadData();
-  }
+    setSelectedElectionId(newElection.id);
+    setAuthenticatedElectionId(newElection.id);
+    setAccessCodeInput(newElection.accessCode);
+    setAdminClassName("");
+    setAdminTitle("");
+    setAdminDescription("");
+    setAdminPositions(DEFAULT_POSITIONS.join(", "));
+    setMessage(`Eleição cadastrada com sucesso. Link da turma: /votacao/${newElection.accessCode}`);
+  };
 
-  function handlePhotoUpload(event) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setCandidatePhoto(String(reader.result || ''));
-    reader.readAsDataURL(file);
-  }
-
-  function handleEditCandidatePhotoUpload(event) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setEditCandidatePhoto(String(reader.result || ''));
-    reader.readAsDataURL(file);
-  }
-
-  async function addCandidate() {
-    if (!selectedElectionId || !candidateName.trim() || !candidatePositionId) {
-      setMessage('Selecione a turma, o cargo e o nome do candidato.');
-      return;
-    }
-
-    const { error } = await supabase.from('candidates').insert({
-      election_id: selectedElectionId,
-      position_id: candidatePositionId,
-      name: candidateName.trim(),
-      number: candidateNumber.trim(),
-      photo_url: candidatePhoto,
-    });
-
-    if (error) {
-      setMessage(`Erro ao cadastrar candidato: ${error.message}`);
-      return;
-    }
-
-    setCandidateName('');
-    setCandidatePositionId('');
-    setCandidateNumber('');
-    setCandidatePhoto('');
-    setMessage('Candidato cadastrado com sucesso.');
-    await loadData();
-  }
-
-  function startEditCandidate(election, candidate) {
-    setEditingCandidateId(candidate.id);
-    setEditCandidateElectionId(election.id);
-    setEditCandidateName(candidate.name);
-    setEditCandidatePositionId(candidate.positionId);
-    setEditCandidateNumber(candidate.number || '');
-    setEditCandidatePhoto(candidate.photo || '');
-    setMessage('');
-  }
-
-  function cancelEditCandidate() {
-    setEditingCandidateId('');
-    setEditCandidateElectionId('');
-    setEditCandidateName('');
-    setEditCandidatePositionId('');
-    setEditCandidateNumber('');
-    setEditCandidatePhoto('');
-  }
-
-  async function saveCandidateEdit() {
-    if (!editingCandidateId) return;
-    if (!editCandidateName.trim() || !editCandidatePositionId) {
-      setMessage('Informe o nome e o cargo do candidato.');
-      return;
-    }
-
-    const { error } = await supabase
-      .from('candidates')
-      .update({
-        name: editCandidateName.trim(),
-        number: editCandidateNumber.trim(),
-        position_id: editCandidatePositionId,
-        photo_url: editCandidatePhoto,
-      })
-      .eq('id', editingCandidateId);
-
-    if (error) {
-      setMessage(`Erro ao editar candidato: ${error.message}`);
-      return;
-    }
-
-    cancelEditCandidate();
-    setMessage('Candidato atualizado com sucesso.');
-    await loadData();
-  }
-
-  async function deleteCandidate(candidateId) {
-    const { error } = await supabase.from('candidates').delete().eq('id', candidateId);
-    if (error) {
-      setMessage(`Erro ao excluir candidato: ${error.message}`);
-      return;
-    }
-    if (editingCandidateId === candidateId) {
-      cancelEditCandidate();
-    }
-    setMessage('Candidato excluído com sucesso.');
-    await loadData();
-  }
-
-  async function deleteElection(electionId) {
-    const { error } = await supabase.from('elections').delete().eq('id', electionId);
-    if (error) {
-      setMessage(`Erro ao excluir turma: ${error.message}`);
-      return;
-    }
-    if (editingElectionId === electionId) {
-      cancelEditElection();
-    }
-    setMessage('Turma excluída com sucesso.');
-    await loadData();
-  }
-
-  async function toggleElectionStatus(election) {
-    const { error } = await supabase
-      .from('elections')
-      .update({ status: election.status === 'aberta' ? 'encerrada' : 'aberta' })
-      .eq('id', election.id);
-
-    if (error) {
-      setMessage(`Erro ao atualizar status: ${error.message}`);
-      return;
-    }
-
-    setMessage('Status atualizado com sucesso.');
-    await loadData();
-  }
-
-  function accessElectionByCode() {
-    const code = accessCodeInput.replace('/votacao/', '').trim();
-    if (!code) {
-      setMessage('Informe o código da turma.');
-      return;
-    }
-    window.location.href = `${window.location.origin}/votacao/${code}`;
-  }
-
-  async function submitVote() {
-    if (!currentElection) {
-      setMessage('Turma não encontrada.');
-      return;
-    }
-
-    const cpf = cleanCPF(voterCPF);
-    if (!voterName.trim() || cpf.length !== 11) {
-      setMessage('Preencha nome e CPF corretamente.');
-      return;
-    }
-
-    if (currentElection.status !== 'aberta') {
-      setMessage('Esta eleição está encerrada.');
-      return;
-    }
-
-    const positionsWithCandidates = currentElection.positions.filter((position) =>
-      currentElection.candidates.some((candidate) => candidate.positionId === position.id)
-    );
-
-    if (positionsWithCandidates.length === 0) {
-      setMessage('Esta turma ainda não possui candidatos cadastrados.');
-      return;
-    }
-
-    const missingPositions = positionsWithCandidates.filter((position) => !selectedVotes[position.id]);
-    if (missingPositions.length > 0) {
-      setMessage('Escolha um candidato para cada cargo disponível.');
-      return;
-    }
-
-    const { data: existingVoter } = await supabase
-      .from('voters')
-      .select('id')
-      .eq('election_id', currentElection.id)
-      .eq('cpf', cpf)
-      .maybeSingle();
-
-    if (existingVoter) {
-      setMessage('Este CPF já votou nesta turma.');
-      return;
-    }
-
-    const { data: createdVoter, error: voterError } = await supabase
-      .from('voters')
-      .insert({
-        election_id: currentElection.id,
-        voter_name: voterName.trim(),
-        cpf,
-      })
-      .select()
-      .single();
-
-    if (voterError) {
-      setMessage(`Erro ao registrar votante: ${voterError.message}`);
-      return;
-    }
-
-    const { error: votesError } = await supabase.from('votes').insert(
-      positionsWithCandidates.map((position) => ({
-        election_id: currentElection.id,
-        voter_id: createdVoter.id,
-        position_id: position.id,
-        candidate_id: selectedVotes[position.id],
-      }))
-    );
-
-    if (votesError) {
-      setMessage(`Erro ao registrar votos: ${votesError.message}`);
-      return;
-    }
-
-    setVoterName('');
-    setVoterCPF('');
+  const removeElection = (electionId) => {
+    const remaining = elections.filter((e) => e.id !== electionId);
+    setData((prev) => ({
+      ...prev,
+      elections: remaining,
+    }));
+    setSelectedElectionId(remaining[0]?.id || "");
+    setAuthenticatedElectionId(remaining[0]?.id || "");
+    setAccessCodeInput(remaining[0]?.accessCode || "");
     setSelectedVotes({});
-    setMessage('Voto registrado com sucesso.');
-    await loadData();
-  }
+  };
 
-  function getResultsByPosition(election) {
+  const toggleElectionStatus = (electionId) => {
+    setData((prev) => ({
+      ...prev,
+      elections: prev.elections.map((e) =>
+        e.id === electionId
+          ? { ...e, status: e.status === "aberta" ? "encerrada" : "aberta" }
+          : e
+      ),
+    }));
+  };
+
+  const handlePhotoUpload = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setCandidatePhoto(String(reader.result || ""));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const addCandidate = () => {
+    if (!selectedAdminElection || !candidateName.trim() || !candidatePosition.trim()) {
+      setMessage("Informe nome e cargo do candidato.");
+      return;
+    }
+
+    if (!selectedAdminElection.positions.includes(candidatePosition)) {
+      setMessage("Escolha um cargo válido da eleição da turma.");
+      return;
+    }
+
+    const newCandidate = {
+      id: uid(),
+      name: candidateName.trim(),
+      position: candidatePosition,
+      number: candidateNumber.trim() || String(selectedAdminElection.candidates.length + 1),
+      photo: candidatePhoto,
+    };
+
+    setData((prev) => ({
+      ...prev,
+      elections: prev.elections.map((e) =>
+        e.id === selectedAdminElection.id
+          ? { ...e, candidates: [...e.candidates, newCandidate] }
+          : e
+      ),
+    }));
+
+    setCandidateName("");
+    setCandidatePosition("");
+    setCandidateNumber("");
+    setCandidatePhoto("");
+    setMessage("Candidato cadastrado com sucesso.");
+  };
+
+  const removeCandidate = (electionId, candidateId) => {
+    setData((prev) => ({
+      ...prev,
+      elections: prev.elections.map((e) =>
+        e.id === electionId
+          ? { ...e, candidates: e.candidates.filter((c) => c.id !== candidateId) }
+          : e
+      ),
+    }));
+
+    setSelectedVotes((prev) => {
+      const next = { ...prev };
+      Object.keys(next).forEach((position) => {
+        if (next[position] === candidateId) delete next[position];
+      });
+      return next;
+    });
+  };
+
+  const accessElectionByCode = () => {
+    const normalizedCode = accessCodeInput.trim().replace("/votacao/", "");
+    const election = elections.find((e) => e.accessCode === normalizedCode);
+    if (!election) {
+      setMessage("Código ou link da turma não encontrado.");
+      return;
+    }
+    setAuthenticatedElectionId(election.id);
+    setSelectedVotes({});
+    navigateTo(`/votacao/${election.accessCode}`);
+    setMessage(`Acesso liberado para a turma ${election.className}.`);
+  };
+
+  const submitVote = () => {
+    const clean = cleanCPF(voterCPF);
+
+    if (!voterName.trim() || clean.length !== 11 || !authenticatedElection) {
+      setMessage("Preencha nome, CPF e acesse a votação da turma corretamente.");
+      return;
+    }
+
+    if (authenticatedElection.status !== "aberta") {
+      setMessage("Esta eleição está encerrada e não recebe novos votos.");
+      return;
+    }
+
+    const missingPositions = authenticatedElection.positions.filter((position) => !selectedVotes[position]);
+    if (missingPositions.length > 0) {
+      setMessage("É necessário escolher um único candidato para cada cargo da turma.");
+      return;
+    }
+
+    const alreadyVoted = authenticatedElection.votes.some((v) => v.cpf === clean);
+    if (alreadyVoted) {
+      setMessage("Este CPF já votou nesta eleição da turma.");
+      return;
+    }
+
+    const voteEntries = authenticatedElection.positions.map((position) => ({
+      position,
+      candidateId: selectedVotes[position],
+    }));
+
+    setData((prev) => ({
+      ...prev,
+      elections: prev.elections.map((e) =>
+        e.id === authenticatedElection.id
+          ? {
+              ...e,
+              votes: [
+                ...e.votes,
+                {
+                  id: uid(),
+                  voterName: voterName.trim(),
+                  cpf: clean,
+                  choices: voteEntries,
+                  createdAt: new Date().toISOString(),
+                },
+              ],
+            }
+          : e
+      ),
+    }));
+
+    setVoterName("");
+    setVoterCPF("");
+    setSelectedVotes({});
+    setMessage("Voto registrado com sucesso para todos os cargos da turma.");
+  };
+
+  const getElectionResults = (election) => {
     return election.positions.map((position) => {
-      const candidates = election.candidates.filter((candidate) => candidate.positionId === position.id);
-      const totalVotes = election.votes.filter((vote) =>
-        vote.choices.some((choice) => choice.positionId === position.id)
-      ).length;
+      const candidates = election.candidates.filter((candidate) => candidate.position === position);
+      const totalVotesForPosition = election.votes.length;
 
       const ranked = candidates
         .map((candidate) => {
-          const candidateVotes = election.votes.filter((vote) =>
-            vote.choices.some(
-              (choice) => choice.positionId === position.id && choice.candidateId === candidate.id
-            )
+          const votes = election.votes.filter((vote) =>
+            vote.choices.some((choice) => choice.position === position && choice.candidateId === candidate.id)
           ).length;
-
-          return {
-            ...candidate,
-            totalVotes: candidateVotes,
-            percent: totalVotes > 0 ? ((candidateVotes / totalVotes) * 100).toFixed(1) : '0.0',
-          };
+          const percent = totalVotesForPosition > 0 ? ((votes / totalVotesForPosition) * 100).toFixed(1) : "0.0";
+          return { ...candidate, votes, percent };
         })
-        .sort((a, b) => b.totalVotes - a.totalVotes);
+        .sort((a, b) => b.votes - a.votes);
 
-      return { position, ranked };
+      return {
+        position,
+        totalVotesForPosition,
+        ranked,
+      };
     });
-  }
+  };
 
-  if (loading) {
-    return <div style={styles.loading}>Carregando...</div>;
-  }
+  const handleAdminLogin = () => {
+    if (adminPassword === ADMIN_PASSWORD) {
+      setIsAdminAuthenticated(true);
+      navigateTo("/admin");
+      setMessage("Acesso administrativo liberado.");
+    } else {
+      setMessage("Senha de administrador incorreta.");
+    }
+  };
 
-  if (isVotingPage) {
-    return (
-      <div style={styles.page}>
-        <div style={styles.banner}>
-          <div>
-            <h1 style={styles.bannerTitle}>Sistema de Eleição de Líderes</h1>
-            <p style={styles.bannerSubtitle}>Colégio Estadual Rodolfo de Queiroz</p>
-          </div>
-        </div>
-
-        {message ? <div style={styles.alert}>{message}</div> : null}
-
-        <div style={styles.cardLarge}>
-          <h2 style={styles.title}>Votação da turma</h2>
-
-          <div style={styles.field}>
-            <label style={styles.label}>Código ou link da turma</label>
-            <input
-              style={styles.input}
-              value={accessCodeInput}
-              onChange={(e) => setAccessCodeInput(e.target.value)}
-              placeholder="Digite o código da turma"
-            />
-          </div>
-
-          <button style={styles.primaryButton} onClick={accessElectionByCode}>
-            Acessar turma
-          </button>
-
-          {currentElection ? (
-            <>
-              <div style={{ marginTop: 20 }}>
-                <h3 style={{ marginBottom: 8 }}>{currentElection.className}</h3>
-                <p style={{ color: '#555' }}>
-                  {currentElection.description || 'Escolha um candidato para cada cargo disponível.'}
-                </p>
-              </div>
-
-              <div style={styles.field}>
-                <label style={styles.label}>Nome completo</label>
-                <input style={styles.input} value={voterName} onChange={(e) => setVoterName(e.target.value)} />
-              </div>
-
-              <div style={styles.field}>
-                <label style={styles.label}>CPF</label>
-                <input
-                  style={styles.input}
-                  value={voterCPF}
-                  onChange={(e) => setVoterCPF(formatCPF(e.target.value))}
-                  placeholder="000.000.000-00"
-                />
-              </div>
-
-              {currentElection.positions
-                .filter((position) => currentElection.candidates.some((candidate) => candidate.positionId === position.id))
-                .map((position) => {
-                  const positionCandidates = currentElection.candidates.filter(
-                    (candidate) => candidate.positionId === position.id
-                  );
-
-                  return (
-                    <div key={position.id} style={styles.positionBox}>
-                      <h3 style={{ marginBottom: 6 }}>{position.name}</h3>
-                      <p style={{ color: '#666', marginBottom: 12 }}>Selecione um e somente um candidato.</p>
-
-                      <div style={styles.candidateGrid}>
-                        {positionCandidates.map((candidate) => {
-                          const active = selectedVotes[position.id] === candidate.id;
-                          return (
-                            <button
-                              key={candidate.id}
-                              onClick={() =>
-                                setSelectedVotes((prev) => ({
-                                  ...prev,
-                                  [position.id]: candidate.id,
-                                }))
-                              }
-                              style={{
-                                ...styles.candidateButton,
-                                ...(active ? styles.candidateButtonActive : {}),
-                              }}
-                            >
-                              <div style={styles.candidateInfo}>
-                                {candidate.photo ? (
-                                  <img src={candidate.photo} alt={candidate.name} style={styles.avatar} />
-                                ) : (
-                                  <div style={styles.avatarPlaceholder} />
-                                )}
-                                <div>
-                                  <div style={{ ...styles.candidateName, color: active ? '#111827' : styles.candidateName.color }}>{candidate.name}</div>
-                                  <div style={{ ...styles.candidateMeta, color: active ? '#1f2937' : styles.candidateMeta.color }}>Nº {candidate.number}</div>
-                                </div>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-
-              <button style={styles.primaryButton} onClick={submitVote}>
-                Confirmar votação
-              </button>
-            </>
-          ) : null}
-        </div>
-      </div>
-    );
-  }
-
-  if (!isAdminAuthenticated) {
-    return (
-      <div style={styles.page}>
-        <div style={styles.banner}>
-          <div>
-            <h1 style={styles.bannerTitle}>Sistema de Eleição de Líderes</h1>
-            <p style={styles.bannerSubtitle}>Colégio Estadual Rodolfo de Queiroz</p>
-          </div>
-        </div>
-
-        {message ? <div style={styles.alert}>{message}</div> : null}
-
-        <div style={styles.loginCard}>
-          <h2 style={styles.title}>Acesso do administrador</h2>
-          <p style={styles.text}>Somente a administração acessa cadastro de candidatos, turmas e apuração.</p>
-
-          <div style={styles.field}>
-            <label style={styles.label}>Usuário administrador</label>
-            <input
-              style={styles.input}
-              value={adminUsername}
-              onChange={(e) => setAdminUsername(e.target.value)}
-              placeholder="CERQ"
-            />
-          </div>
-
-          <div style={styles.field}>
-            <label style={styles.label}>Senha</label>
-            <input
-              type="password"
-              style={styles.input}
-              value={adminPassword}
-              onChange={(e) => setAdminPassword(e.target.value)}
-              placeholder="Digite a senha"
-            />
-          </div>
-
-          <button
-            style={styles.primaryButton}
-            onClick={() => {
-              if (adminUsername.trim() === ADMIN_USERNAME && adminPassword === ADMIN_PASSWORD) {
-                setIsAdminAuthenticated(true);
-                setMessage('Acesso liberado.');
-              } else {
-                setMessage('Usuário ou senha inválidos.');
-              }
-            }}
-          >
-            Entrar
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const handleLogout = () => {
+    setIsAdminAuthenticated(false);
+    setAdminPassword("");
+    navigateTo("/");
+  };
 
   return (
-    <div style={styles.page}>
-      <div style={styles.banner}>
-        <div>
-          <h1 style={styles.bannerTitle}>Sistema de Eleição de Líderes</h1>
-          <p style={styles.bannerSubtitle}>Colégio Estadual Rodolfo de Queiroz</p>
-        </div>
-      </div>
-
-      {message ? <div style={styles.alert}>{message}</div> : null}
-
-      <div style={styles.topBar}>
-        <button style={styles.secondaryButton} onClick={() => setIsAdminAuthenticated(false)}>
-          Sair
-        </button>
-      </div>
-
-      <div style={styles.grid2}>
-        <div style={styles.card}>
-          <h2 style={styles.title}>Nova eleição por turma</h2>
-
-          <div style={styles.field}>
-            <label style={styles.label}>Turma</label>
-            <input style={styles.input} value={className} onChange={(e) => setClassName(e.target.value)} />
-          </div>
-
-          <div style={styles.field}>
-            <label style={styles.label}>Título da eleição</label>
-            <input style={styles.input} value={title} onChange={(e) => setTitle(e.target.value)} />
-          </div>
-
-          <div style={styles.field}>
-            <label style={styles.label}>Descrição</label>
-            <input style={styles.input} value={description} onChange={(e) => setDescription(e.target.value)} />
-          </div>
-
-          <div style={styles.field}>
-            <label style={styles.label}>Cargos</label>
-            <input style={styles.input} value={positionsText} onChange={(e) => setPositionsText(e.target.value)} />
-          </div>
-
-          <button style={styles.primaryButton} onClick={createElection}>
-            Cadastrar eleição
-          </button>
-        </div>
-
-        <div style={styles.card}>
-          <h2 style={styles.title}>Cadastrar candidato</h2>
-
-          <div style={styles.field}>
-            <label style={styles.label}>Selecione a turma</label>
-            <select
-              style={styles.input}
-              value={selectedElectionId}
-              onChange={(e) => {
-                setSelectedElectionId(e.target.value);
-                setCandidatePositionId('');
-              }}
-            >
-              <option value="">Selecione</option>
-              {elections.map((election) => (
-                <option key={election.id} value={election.id}>
-                  {election.className}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div style={styles.field}>
-            <label style={styles.label}>Nome do candidato</label>
-            <input style={styles.input} value={candidateName} onChange={(e) => setCandidateName(e.target.value)} />
-          </div>
-
-          <div style={styles.field}>
-            <label style={styles.label}>Cargo disputado</label>
-            <select
-              style={styles.input}
-              value={candidatePositionId}
-              onChange={(e) => setCandidatePositionId(e.target.value)}
-            >
-              <option value="">Selecione</option>
-              {(selectedElection?.positions || []).map((position) => (
-                <option key={position.id} value={position.id}>
-                  {position.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div style={styles.field}>
-            <label style={styles.label}>Número do candidato</label>
-            <input style={styles.input} value={candidateNumber} onChange={(e) => setCandidateNumber(e.target.value)} />
-          </div>
-
-          <div style={styles.field}>
-            <label style={styles.label}>Foto do candidato</label>
-            <input type="file" accept="image/*" onChange={handlePhotoUpload} />
-          </div>
-
-          <button style={styles.primaryButton} onClick={addCandidate}>
-            Adicionar candidato
-          </button>
-        </div>
-      </div>
-
-      {editingElectionId ? (
-        <div style={styles.card}>
-          <h2 style={styles.title}>Editar turma</h2>
-
-          <div style={styles.field}>
-            <label style={styles.label}>Turma</label>
-            <input style={styles.input} value={editClassName} onChange={(e) => setEditClassName(e.target.value)} />
-          </div>
-
-          <div style={styles.field}>
-            <label style={styles.label}>Título da eleição</label>
-            <input style={styles.input} value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
-          </div>
-
-          <div style={styles.field}>
-            <label style={styles.label}>Descrição</label>
-            <input style={styles.input} value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
-          </div>
-
-          <div style={styles.buttonRow}>
-            <button style={styles.primaryButton} onClick={saveElectionEdit}>
-              Salvar edição da turma
-            </button>
-            <button style={styles.secondaryButton} onClick={cancelEditElection}>
-              Cancelar
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {editingCandidateId ? (
-        <div style={styles.card}>
-          <h2 style={styles.title}>Editar candidato</h2>
-
-          <div style={styles.field}>
-            <label style={styles.label}>Nome do candidato</label>
-            <input style={styles.input} value={editCandidateName} onChange={(e) => setEditCandidateName(e.target.value)} />
-          </div>
-
-          <div style={styles.field}>
-            <label style={styles.label}>Cargo disputado</label>
-            <select
-              style={styles.input}
-              value={editCandidatePositionId}
-              onChange={(e) => setEditCandidatePositionId(e.target.value)}
-            >
-              <option value="">Selecione</option>
-              {(editingCandidateElection?.positions || []).map((position) => (
-                <option key={position.id} value={position.id}>
-                  {position.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div style={styles.field}>
-            <label style={styles.label}>Número do candidato</label>
-            <input style={styles.input} value={editCandidateNumber} onChange={(e) => setEditCandidateNumber(e.target.value)} />
-          </div>
-
-          <div style={styles.field}>
-            <label style={styles.label}>Foto do candidato</label>
-            <input type="file" accept="image/*" onChange={handleEditCandidatePhotoUpload} />
-            {editCandidatePhoto ? <div style={styles.previewText}>Foto carregada para atualização.</div> : null}
-          </div>
-
-          <div style={styles.buttonRow}>
-            <button style={styles.primaryButton} onClick={saveCandidateEdit}>
-              Salvar edição do candidato
-            </button>
-            <button style={styles.secondaryButton} onClick={cancelEditCandidate}>
-              Cancelar
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      <div style={styles.card}>
-        <h2 style={styles.title}>Painel das turmas</h2>
-
-        <div style={styles.panelGrid}>
-          {elections.map((election) => (
-            <div key={election.id} style={styles.panelCard}>
-              <div style={styles.panelHeader}>
-                <div>
-                  <h3 style={{ margin: 0 }}>{election.className}</h3>
-                  <p style={{ marginTop: 8 }}>{election.title}</p>
-                </div>
-                <span style={styles.statusBadge}>
-                  {election.status === 'aberta' ? 'ABERTA' : 'ENCERRADA'}
-                </span>
-              </div>
-
-              <p><strong>Cargos:</strong> {election.positions.length}</p>
-              <p><strong>Candidatos:</strong> {election.candidates.length}</p>
-              <p><strong>Votantes:</strong> {election.votes.length}</p>
-
-              <a
-                href={`${window.location.origin}/votacao/${election.accessCode}`}
-                target="_blank"
-                rel="noreferrer"
-                style={styles.linkBox}
-              >
-                {`${window.location.origin}/votacao/${election.accessCode}`}
-              </a>
-
-              <div style={styles.buttonRow}>
-                <button style={styles.secondaryButton} onClick={() => toggleElectionStatus(election)}>
-                  {election.status === 'aberta' ? 'Encerrar' : 'Reabrir'}
-                </button>
-
-                <button style={styles.editButton} onClick={() => startEditElection(election)}>
-                  Editar turma
-                </button>
-
-                <button style={styles.dangerButton} onClick={() => deleteElection(election.id)}>
-                  Excluir turma
-                </button>
-              </div>
-
-              <div style={{ marginTop: 20 }}>
-                {election.candidates.map((candidate) => (
-                  <div key={candidate.id} style={styles.candidateRow}>
-                    <div style={styles.candidateInfo}>
-                      {candidate.photo ? (
-                        <img src={candidate.photo} alt={candidate.name} style={styles.avatarSmall} />
-                      ) : (
-                        <div style={styles.avatarPlaceholderSmall} />
-                      )}
-                      <div>
-                        <div style={styles.candidateName}>{candidate.name}</div>
-                        <div style={styles.candidateMeta}>
-                          {candidate.position} · Nº {candidate.number}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={styles.buttonRowSmall}>
-                      <button style={styles.editButtonSmall} onClick={() => startEditCandidate(election, candidate)}>
-                        Editar
-                      </button>
-                      <button style={styles.dangerButtonSmall} onClick={() => deleteCandidate(candidate.id)}>
-                        Excluir
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
+    <div className="min-h-screen bg-slate-50 p-4 md:p-8">
+      <div className="mx-auto max-w-7xl space-y-6">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-3xl bg-gradient-to-r from-slate-900 to-slate-700 p-6 text-white shadow-xl"
+        >
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h1 className="text-3xl font-bold">Sistema de Eleição de Líderes de Turma</h1>
+              <p className="mt-2 text-sm text-slate-200 md:text-base">
+                Colégio Estadual Rodolfo de Queiroz — eleições separadas por turma, com link exclusivo, cargos específicos, fotos dos candidatos e apuração por função.
+              </p>
             </div>
-          ))}
-        </div>
-      </div>
-
-      <div style={styles.card}>
-        <h2 style={styles.title}>Apuração</h2>
-
-        {elections.map((election) => (
-          <div key={election.id} style={{ marginBottom: 30 }}>
-            <h3>{election.className}</h3>
-            <p>
-              <strong>Link:</strong>{' '}
-              <a
-                href={`${window.location.origin}/votacao/${election.accessCode}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                {`${window.location.origin}/votacao/${election.accessCode}`}
-              </a>
-            </p>
-            {getResultsByPosition(election).map((group) => (
-              <div key={group.position.id} style={styles.groupBlock}>
-                <h4>{group.position.name}</h4>
-                {group.ranked.length === 0 ? (
-                  <p>Sem candidatos.</p>
-                ) : (
-                  group.ranked.map((candidate) => (
-                    <div style={styles.resultRow} key={candidate.id}>
-                      <span>{candidate.name}</span>
-                      <span>
-                        {candidate.totalVotes} voto(s) · {candidate.percent}%
-                      </span>
-                    </div>
-                  ))
-                )}
-              </div>
-            ))}
+            <div className="grid grid-cols-3 gap-3">
+              <StatCard label="Turmas" value={String(elections.length)} icon={<School className="h-5 w-5" />} />
+              <StatCard label="Candidatos" value={String(totalCandidatesAll)} icon={<Users className="h-5 w-5" />} />
+              <StatCard label="Votantes" value={String(totalVotesAll)} icon={<Vote className="h-5 w-5" />} />
+            </div>
           </div>
-        ))}
+        </motion.div>
+
+        {message && (
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
+            {message}
+          </div>
+        )}
+
+        {!isVotingPage ? (
+          !isAdminAuthenticated ? (
+            <Card className="mx-auto max-w-lg rounded-3xl shadow-md">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-xl">
+                  <ShieldCheck className="h-5 w-5" /> Acesso do administrador
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
+                  Somente a administração do Colégio Estadual Rodolfo de Queiroz pode acessar o cadastro de eleições, candidatos e a apuração completa.
+                </div>
+                <div className="space-y-2">
+                  <Label>Senha do administrador</Label>
+                  <Input
+                    type="password"
+                    value={adminPassword}
+                    onChange={(e) => setAdminPassword(e.target.value)}
+                    placeholder="Digite a senha"
+                  />
+                </div>
+                <Button className="w-full rounded-2xl" onClick={handleAdminLogin}>
+                  Entrar no painel administrativo
+                </Button>
+                <p className="text-xs text-slate-500">
+                  Senha de demonstração atual no código: <strong>admin123</strong>. Altere antes de publicar.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <Tabs defaultValue="admin" className="w-full">
+              <div className="mb-4 flex justify-end">
+                <Button variant="outline" className="rounded-2xl" onClick={handleLogout}>
+                  Sair da administração
+                </Button>
+              </div>
+              <TabsList className="grid w-full grid-cols-2 rounded-2xl">
+                <TabsTrigger value="admin">Administrador</TabsTrigger>
+                <TabsTrigger value="results">Apuração</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="admin" className="mt-6 space-y-6">
+                <div className="grid gap-6 lg:grid-cols-2">
+                  <Card className="rounded-3xl shadow-md">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2 text-xl">
+                        <PlusCircle className="h-5 w-5" /> Nova eleição por turma
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="space-y-2">
+                        <Label>Nome da escola</Label>
+                        <Input value={adminSchoolName} onChange={(e) => setAdminSchoolName(e.target.value)} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Turma</Label>
+                        <Input
+                          value={adminClassName}
+                          onChange={(e) => setAdminClassName(e.target.value)}
+                          placeholder="Ex.: 2º Ano B"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Título da eleição</Label>
+                        <Input
+                          value={adminTitle}
+                          onChange={(e) => setAdminTitle(e.target.value)}
+                          placeholder="Ex.: Eleição de Representantes da Turma"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Descrição</Label>
+                        <Input
+                          value={adminDescription}
+                          onChange={(e) => setAdminDescription(e.target.value)}
+                          placeholder="Descreva o objetivo da votação"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Cargos da turma</Label>
+                        <Input
+                          value={adminPositions}
+                          onChange={(e) => setAdminPositions(e.target.value)}
+                          placeholder="Líder, Vice-líder, Representante Indígena, Representante LGBTQIA+"
+                        />
+                        <p className="text-xs text-slate-500">Separe os cargos por vírgula. O eleitor votará uma única vez em um candidato para cada cargo.</p>
+                      </div>
+                      <Button className="w-full rounded-2xl" onClick={addElection}>
+                        Cadastrar eleição da turma
+                      </Button>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="rounded-3xl shadow-md">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2 text-xl">
+                        <UserPlus className="h-5 w-5" /> Cadastrar candidato
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="space-y-2">
+                        <Label>Selecione a turma</Label>
+                        <Select value={selectedElectionId} onValueChange={setSelectedElectionId}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Escolha uma turma" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {elections.map((election) => (
+                              <SelectItem key={election.id} value={election.id}>
+                                {election.className}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Nome do candidato</Label>
+                        <Input
+                          value={candidateName}
+                          onChange={(e) => setCandidateName(e.target.value)}
+                          placeholder="Nome completo do estudante"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Cargo disputado</Label>
+                        <Select value={candidatePosition} onValueChange={setCandidatePosition}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecione um cargo" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(selectedAdminElection?.positions || []).map((position) => (
+                              <SelectItem key={position} value={position}>
+                                {position}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Número do candidato</Label>
+                        <Input
+                          value={candidateNumber}
+                          onChange={(e) => setCandidateNumber(e.target.value)}
+                          placeholder="Ex.: 15"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Foto do candidato</Label>
+                        <Input type="file" accept="image/*" onChange={handlePhotoUpload} />
+                        {candidatePhoto && (
+                          <div className="flex items-center gap-3 rounded-2xl border p-3">
+                            <img src={candidatePhoto} alt="Pré-visualização" className="h-14 w-14 rounded-full object-cover" />
+                            <span className="text-sm text-slate-600">Foto carregada com sucesso.</span>
+                          </div>
+                        )}
+                      </div>
+                      <Button className="w-full rounded-2xl" onClick={addCandidate}>
+                        Adicionar candidato
+                      </Button>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <Card className="rounded-3xl shadow-md">
+                  <CardHeader>
+                    <CardTitle>Painel das turmas</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                      {elections.map((election) => (
+                        <motion.div
+                          key={election.id}
+                          initial={{ opacity: 0, scale: 0.98 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          className="rounded-3xl border bg-slate-50 p-4"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <h3 className="text-lg font-semibold">{election.className}</h3>
+                              <p className="mt-1 text-sm text-slate-600">{election.title}</p>
+                              <p className="mt-1 text-xs text-slate-500">{election.schoolName}</p>
+                            </div>
+                            <Badge variant={election.status === "aberta" ? "default" : "secondary"}>
+                              {election.status}
+                            </Badge>
+                          </div>
+
+                          <Separator className="my-4" />
+
+                          <div className="space-y-2 text-sm">
+                            <p><strong>Cargos:</strong> {election.positions.length}</p>
+                            <p><strong>Candidatos:</strong> {election.candidates.length}</p>
+                            <p><strong>Votantes:</strong> {election.votes.length}</p>
+                          </div>
+
+                          <div className="mt-3 rounded-2xl bg-white p-3 text-xs text-slate-600">
+                            <div className="mb-1 flex items-center gap-2 font-medium text-slate-800">
+                              <Link2 className="h-4 w-4" /> Link exclusivo da turma
+                            </div>
+                            <code>/votacao/{election.accessCode}</code>
+                          </div>
+
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            <Button variant="outline" className="rounded-2xl" onClick={() => toggleElectionStatus(election.id)}>
+                              {election.status === "aberta" ? "Encerrar" : "Reabrir"}
+                            </Button>
+
+                            <Dialog>
+                              <DialogTrigger asChild>
+                                <Button variant="outline" className="rounded-2xl">Ver candidatos</Button>
+                              </DialogTrigger>
+                              <DialogContent className="max-w-2xl rounded-3xl">
+                                <DialogHeader>
+                                  <DialogTitle>{election.className}</DialogTitle>
+                                </DialogHeader>
+                                <div className="space-y-3">
+                                  {election.candidates.length === 0 && (
+                                    <p className="text-sm text-slate-500">Nenhum candidato cadastrado.</p>
+                                  )}
+                                  {election.candidates.map((candidate) => (
+                                    <div key={candidate.id} className="flex items-center justify-between rounded-2xl border p-3">
+                                      <div className="flex items-center gap-3">
+                                        {candidate.photo ? (
+                                          <img src={candidate.photo} alt={candidate.name} className="h-14 w-14 rounded-full object-cover" />
+                                        ) : (
+                                          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-slate-100">
+                                            <ImagePlus className="h-5 w-5 text-slate-400" />
+                                          </div>
+                                        )}
+                                        <div>
+                                          <p className="font-medium">{candidate.name}</p>
+                                          <p className="text-sm text-slate-500">{candidate.position} • Nº {candidate.number}</p>
+                                        </div>
+                                      </div>
+                                      <Button
+                                        variant="destructive"
+                                        size="icon"
+                                        className="rounded-xl"
+                                        onClick={() => removeCandidate(election.id, candidate.id)}
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </Button>
+                                    </div>
+                                  ))}
+                                </div>
+                              </DialogContent>
+                            </Dialog>
+
+                            <Button
+                              variant="destructive"
+                              className="rounded-2xl"
+                              onClick={() => removeElection(election.id)}
+                            >
+                              Excluir
+                            </Button>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="results" className="mt-6">
+                <div className="grid gap-6">
+                  {elections.map((election) => {
+                    const groupedResults = getElectionResults(election);
+                    return (
+                      <Card key={election.id} className="rounded-3xl shadow-md">
+                        <CardHeader>
+                          <div className="flex items-center justify-between gap-3">
+                            <CardTitle className="flex items-center gap-2 text-xl">
+                              <BarChart3 className="h-5 w-5" /> {election.className}
+                            </CardTitle>
+                            <Badge variant={election.status === "aberta" ? "default" : "secondary"}>
+                              {election.status}
+                            </Badge>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="space-y-5">
+                          <div className="rounded-2xl bg-slate-50 p-4 text-sm">
+                            <p><strong>Escola:</strong> {election.schoolName}</p>
+                            <p><strong>Votantes:</strong> {election.votes.length}</p>
+                            <p><strong>Link da turma:</strong> /votacao/{election.accessCode}</p>
+                          </div>
+
+                          {groupedResults.map((group) => (
+                            <div key={group.position} className="space-y-3 rounded-3xl border p-4">
+                              <div className="flex items-center justify-between gap-3">
+                                <div>
+                                  <p className="text-lg font-semibold">{group.position}</p>
+                                  <p className="text-sm text-slate-500">Total de votos para o cargo: {group.totalVotesForPosition}</p>
+                                </div>
+                                <Badge variant="outline" className="rounded-xl">
+                                  {group.ranked[0] ? `Lidera: ${group.ranked[0].name}` : "Sem candidatos"}
+                                </Badge>
+                              </div>
+
+                              {group.ranked.length === 0 ? (
+                                <p className="text-sm text-slate-500">Nenhum candidato cadastrado para este cargo.</p>
+                              ) : (
+                                group.ranked.map((candidate) => (
+                                  <div key={candidate.id} className="rounded-2xl border p-4">
+                                    <div className="mb-2 flex items-center justify-between gap-3">
+                                      <div className="flex items-center gap-3">
+                                        {candidate.photo ? (
+                                          <img src={candidate.photo} alt={candidate.name} className="h-12 w-12 rounded-full object-cover" />
+                                        ) : (
+                                          <div className="h-12 w-12 rounded-full bg-slate-100" />
+                                        )}
+                                        <div>
+                                          <p className="font-semibold">{candidate.name}</p>
+                                          <p className="text-sm text-slate-500">Nº {candidate.number}</p>
+                                        </div>
+                                      </div>
+                                      <div className="text-right">
+                                        <p className="font-semibold">{candidate.votes} voto(s)</p>
+                                        <p className="text-sm text-slate-500">{candidate.percent}%</p>
+                                      </div>
+                                    </div>
+                                    <div className="h-3 w-full overflow-hidden rounded-full bg-slate-100">
+                                      <div
+                                        className="h-full rounded-full bg-slate-900 transition-all"
+                                        style={{ width: `${candidate.percent}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                          ))}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              </TabsContent>
+            </Tabs>
+          )
+        ) : (
+          <Card className="mx-auto max-w-5xl rounded-3xl shadow-md">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-xl">
+                <Vote className="h-5 w-5" /> Votação exclusiva por turma
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-2 md:col-span-2">
+                  <Label>Código ou link da turma</Label>
+                  <Input
+                    value={accessCodeInput}
+                    onChange={(e) => setAccessCodeInput(e.target.value.replace("/votacao/", ""))}
+                    placeholder="Ex.: 1anoa-rodolfo-queiroz"
+                  />
+                </div>
+                <div className="flex items-end">
+                  <Button className="w-full rounded-2xl" onClick={accessElectionByCode}>
+                    Acessar turma
+                  </Button>
+                </div>
+              </div>
+
+              {authenticatedElection && (
+                <div className="rounded-3xl border bg-slate-50 p-4">
+                  <p className="text-lg font-semibold">{authenticatedElection.className}</p>
+                  <p className="text-sm text-slate-600">{authenticatedElection.schoolName}</p>
+                  <p className="mt-1 text-sm text-slate-500">{authenticatedElection.description || "Escolha um único candidato para cada cargo."}</p>
+                </div>
+              )}
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Nome completo</Label>
+                  <Input
+                    value={voterName}
+                    onChange={(e) => setVoterName(e.target.value)}
+                    placeholder="Digite seu nome"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>CPF</Label>
+                  <Input
+                    value={voterCPF}
+                    onChange={(e) => setVoterCPF(formatCPF(e.target.value))}
+                    placeholder="000.000.000-00"
+                  />
+                </div>
+              </div>
+
+              {!authenticatedElection ? (
+                <div className="rounded-2xl border border-dashed p-6 text-center text-sm text-slate-500">
+                  Informe o código da turma para liberar a votação.
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {authenticatedElection.positions.map((position) => {
+                    const positionCandidates = authenticatedElection.candidates.filter((candidate) => candidate.position === position);
+                    return (
+                      <div key={position} className="space-y-3 rounded-3xl border p-4">
+                        <div>
+                          <p className="text-lg font-semibold">{position}</p>
+                          <p className="text-sm text-slate-500">Selecione um e somente um candidato para este cargo.</p>
+                        </div>
+
+                        {positionCandidates.length === 0 ? (
+                          <div className="rounded-2xl border border-dashed p-4 text-sm text-slate-500">
+                            Nenhum candidato cadastrado para este cargo.
+                          </div>
+                        ) : (
+                          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                            {positionCandidates.map((candidate) => {
+                              const active = selectedVotes[position] === candidate.id;
+                              return (
+                                <button
+                                  key={candidate.id}
+                                  type="button"
+                                  onClick={() => setSelectedVotes((prev) => ({ ...prev, [position]: candidate.id }))}
+                                  className={`rounded-3xl border p-4 text-left transition ${
+                                    active
+                                      ? "border-slate-900 bg-slate-900 text-white shadow-lg"
+                                      : "bg-white hover:border-slate-400"
+                                  }`}
+                                >
+                                  <div className="mb-3 flex items-center gap-3">
+                                    {candidate.photo ? (
+                                      <img src={candidate.photo} alt={candidate.name} className="h-16 w-16 rounded-full object-cover" />
+                                    ) : (
+                                      <div className="flex h-16 w-16 items-center justify-center rounded-full bg-slate-100">
+                                        <Users className="h-6 w-6 text-slate-400" />
+                                      </div>
+                                    )}
+                                    <div>
+                                      <p className="text-base font-semibold">{candidate.name}</p>
+                                      <p className={`text-sm ${active ? "text-slate-200" : "text-slate-500"}`}>
+                                        Nº {candidate.number}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  {active && <Badge className="rounded-xl bg-white text-slate-900">Selecionado</Badge>}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  <Button className="w-full rounded-2xl text-base" onClick={submitVote}>
+                    Confirmar votação da turma
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );
 }
 
-const styles = {
-  loading: {
-    minHeight: '100vh',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontFamily: 'Arial, sans-serif',
-    fontSize: 18,
-  },
-  page: {
-    minHeight: '100vh',
-    background: '#f3f4f6',
-    padding: 20,
-    fontFamily: 'Arial, sans-serif',
-    color: '#0f172a',
-  },
-  banner: {
-    background: 'linear-gradient(90deg, #0f172a 0%, #334155 100%)',
-    borderRadius: 24,
-    padding: 28,
-    color: 'white',
-    marginBottom: 20,
-  },
-  bannerTitle: {
-    margin: 0,
-    fontSize: 24,
-    fontWeight: 700,
-  },
-  bannerSubtitle: {
-    marginTop: 10,
-    marginBottom: 0,
-    fontSize: 16,
-  },
-  alert: {
-    background: 'white',
-    border: '1px solid #cbd5e1',
-    borderRadius: 18,
-    padding: 16,
-    marginBottom: 20,
-  },
-  loginCard: {
-    maxWidth: 520,
-    background: 'white',
-    borderRadius: 24,
-    padding: 28,
-    margin: '0 auto',
-    border: '1px solid #e2e8f0',
-  },
-  cardLarge: {
-    maxWidth: 920,
-    background: 'white',
-    borderRadius: 24,
-    padding: 28,
-    margin: '0 auto',
-    border: '1px solid #e2e8f0',
-  },
-  card: {
-    background: 'white',
-    borderRadius: 24,
-    padding: 24,
-    marginBottom: 24,
-    border: '1px solid #e2e8f0',
-  },
-  title: {
-    marginTop: 0,
-    marginBottom: 20,
-    fontSize: 22,
-  },
-  text: {
-    marginTop: 0,
-    marginBottom: 20,
-    lineHeight: 1.5,
-  },
-  field: {
-    marginBottom: 16,
-  },
-  label: {
-    display: 'block',
-    marginBottom: 8,
-    fontWeight: 600,
-  },
-  input: {
-    width: '100%',
-    padding: '12px 14px',
-    borderRadius: 14,
-    border: '1px solid #cbd5e1',
-    fontSize: 16,
-    boxSizing: 'border-box',
-  },
-  primaryButton: {
-    background: '#0f172a',
-    color: 'white',
-    border: 'none',
-    borderRadius: 14,
-    padding: '12px 18px',
-    cursor: 'pointer',
-    fontSize: 16,
-  },
-  secondaryButton: {
-    background: '#e2e8f0',
-    color: '#0f172a',
-    border: 'none',
-    borderRadius: 14,
-    padding: '12px 18px',
-    cursor: 'pointer',
-    fontSize: 16,
-  },
-  editButton: {
-    background: '#2563eb',
-    color: 'white',
-    border: 'none',
-    borderRadius: 14,
-    padding: '12px 18px',
-    cursor: 'pointer',
-    fontSize: 16,
-  },
-  dangerButton: {
-    background: '#ef4444',
-    color: 'white',
-    border: 'none',
-    borderRadius: 14,
-    padding: '12px 18px',
-    cursor: 'pointer',
-    fontSize: 16,
-  },
-  editButtonSmall: {
-    background: '#2563eb',
-    color: 'white',
-    border: 'none',
-    borderRadius: 12,
-    padding: '10px 14px',
-    cursor: 'pointer',
-    fontSize: 14,
-  },
-  dangerButtonSmall: {
-    background: '#ef4444',
-    color: 'white',
-    border: 'none',
-    borderRadius: 12,
-    padding: '10px 14px',
-    cursor: 'pointer',
-    fontSize: 14,
-  },
-  topBar: {
-    display: 'flex',
-    justifyContent: 'flex-end',
-    marginBottom: 20,
-  },
-  grid2: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-    gap: 20,
-    marginBottom: 24,
-  },
-  panelGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-    gap: 20,
-  },
-  panelCard: {
-    border: '1px solid #dbe3ef',
-    borderRadius: 24,
-    padding: 20,
-    background: '#fafafa',
-  },
-  panelHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 12,
-    marginBottom: 18,
-  },
-  statusBadge: {
-    background: '#dcfce7',
-    color: '#166534',
-    borderRadius: 999,
-    padding: '10px 14px',
-    fontSize: 14,
-  },
-  linkBox: {
-    display: 'block',
-    marginTop: 14,
-    marginBottom: 16,
-    padding: '12px 14px',
-    borderRadius: 14,
-    border: '1px dashed #94a3b8',
-    color: '#0f172a',
-    wordBreak: 'break-all',
-    textDecoration: 'none',
-  },
-  buttonRow: {
-    display: 'flex',
-    gap: 12,
-    flexWrap: 'wrap',
-    marginBottom: 16,
-  },
-  buttonRowSmall: {
-    display: 'flex',
-    gap: 8,
-    flexWrap: 'wrap',
-  },
-  candidateRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 12,
-    padding: '14px 0',
-    borderTop: '1px solid #e5e7eb',
-  },
-  candidateInfo: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 14,
-    textAlign: 'left',
-  },
-  candidateName: {
-    fontWeight: 700,
-    marginBottom: 6,
-    color: '#111827',
-  },
-  candidateMeta: {
-    color: '#334155',
-  },
-  avatar: {
-    width: 64,
-    height: 64,
-    borderRadius: '50%',
-    objectFit: 'cover',
-    background: '#e5e7eb',
-  },
-  avatarSmall: {
-    width: 48,
-    height: 48,
-    borderRadius: '50%',
-    objectFit: 'cover',
-    background: '#e5e7eb',
-  },
-  avatarPlaceholder: {
-    width: 64,
-    height: 64,
-    borderRadius: '50%',
-    background: '#e5e7eb',
-  },
-  avatarPlaceholderSmall: {
-    width: 48,
-    height: 48,
-    borderRadius: '50%',
-    background: '#e5e7eb',
-  },
-  previewText: {
-    marginTop: 8,
-    color: '#2563eb',
-    fontSize: 14,
-  },
-  positionBox: {
-    marginTop: 20,
-    marginBottom: 20,
-    border: '1px solid #e2e8f0',
-    borderRadius: 20,
-    padding: 18,
-  },
-  candidateGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
-    gap: 14,
-  },
-  candidateButton: {
-    border: '1px solid #cbd5e1',
-    background: 'white',
-    color: '#111827',
-    borderRadius: 18,
-    padding: 14,
-    cursor: 'pointer',
-  },
-  candidateButtonActive: {
-    border: '2px solid #0f172a',
-    background: '#e2e8f0',
-    color: '#111827',
-  },
-  groupBlock: {
-    marginTop: 16,
-    marginBottom: 20,
-    border: '1px solid #e2e8f0',
-    borderRadius: 18,
-    padding: 16,
-    background: '#fafafa',
-  },
-  resultRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: 12,
-    padding: '8px 0',
-    borderTop: '1px solid #e5e7eb',
-  },
-};
+function StatCard({ label, value, icon }) {
+  return (
+    <div className="rounded-2xl bg-white/10 p-3 backdrop-blur-sm">
+      <div className="mb-1 flex items-center justify-between text-slate-200">
+        <span className="text-xs uppercase tracking-wide">{label}</span>
+        {icon}
+      </div>
+      <div className="text-2xl font-bold text-white">{value}</div>
+    </div>
+  );
+}
+
+export default App;
