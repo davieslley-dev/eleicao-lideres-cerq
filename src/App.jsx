@@ -41,6 +41,24 @@ function formatCPF(value) {
     .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
 }
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function formatCpfForReport(value) {
+  const digits = String(value || '').replace(/\D/g, '').slice(0, 11);
+  if (digits.length !== 11) return value || '';
+  return digits
+    .replace(/(\d{3})(\d)/, '$1.$2')
+    .replace(/(\d{3})(\d)/, '$1.$2')
+    .replace(/(\d{3})(\d{2})$/, '$1-$2');
+}
+
 function groupElectionData(elections, positions, candidates, voters, votes) {
   return elections.map((election) => {
     const electionPositions = positions
@@ -529,6 +547,201 @@ export default function App() {
     });
   }
 
+  function openElectionReport(election) {
+    const groupedResults = getResultsByPosition(election);
+    const candidateMap = new Map((election.candidates || []).map((candidate) => [candidate.id, candidate]));
+
+    const summaryRows = groupedResults
+      .map((group) => {
+        return (group.ranked || [])
+          .map(
+            (candidate) => `
+              <tr>
+                <td>${escapeHtml(group.position.name)}</td>
+                <td>${escapeHtml(candidate.name)}</td>
+                <td>${escapeHtml(candidate.number || '-')}</td>
+                <td>${escapeHtml(String(candidate.totalVotes ?? 0))}</td>
+                <td>${escapeHtml(String(candidate.percent ?? '0.0'))}%</td>
+              </tr>
+            `
+          )
+          .join('');
+      })
+      .join('');
+
+    const voteRows = (election.votes || [])
+      .map((vote, index) => {
+        return (vote.choices || [])
+          .map((choice) => {
+            const candidate = candidateMap.get(choice.candidateId);
+            return `
+              <tr>
+                <td>${index + 1}</td>
+                <td>${escapeHtml(vote.voterName)}</td>
+                <td>${escapeHtml(formatCpfForReport(vote.cpf))}</td>
+                <td>${escapeHtml(choice.position || election.positions.find((p) => p.id === choice.positionId)?.name || '-')}</td>
+                <td>${escapeHtml(candidate?.name || 'Não identificado')}</td>
+                <td>${escapeHtml(candidate?.number || '-')}</td>
+              </tr>
+            `;
+          })
+          .join('');
+      })
+      .join('');
+
+    const reportWindow = window.open('', '_blank', 'noopener,noreferrer,width=1200,height=900');
+
+    if (!reportWindow) {
+      setMessage('O navegador bloqueou a abertura da aba do relatório.');
+      return;
+    }
+
+    reportWindow.document.write(`
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+        <head>
+          <meta charset="UTF-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+          <title>Relatório da votação - ${escapeHtml(election.className)}</title>
+          <style>
+            body {
+              font-family: Arial, sans-serif;
+              margin: 24px;
+              color: #111827;
+            }
+            .header {
+              border: 2px solid #0f172a;
+              border-radius: 16px;
+              padding: 20px;
+              margin-bottom: 20px;
+            }
+            .header h1 {
+              margin: 0 0 10px;
+              font-size: 28px;
+            }
+            .header p {
+              margin: 6px 0;
+            }
+            .section {
+              margin-top: 24px;
+            }
+            .section h2 {
+              margin: 0 0 12px;
+              font-size: 22px;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 10px;
+            }
+            th, td {
+              border: 1px solid #cbd5e1;
+              padding: 10px;
+              text-align: left;
+              font-size: 14px;
+            }
+            th {
+              background: #e2e8f0;
+            }
+            .button-print {
+              background: #0f172a;
+              color: white;
+              border: none;
+              border-radius: 10px;
+              padding: 10px 14px;
+              cursor: pointer;
+              margin-bottom: 16px;
+            }
+            .meta {
+              display: grid;
+              grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+              gap: 12px;
+              margin-top: 14px;
+            }
+            .meta-box {
+              border: 1px solid #cbd5e1;
+              border-radius: 12px;
+              padding: 12px;
+              background: #f8fafc;
+            }
+            .footer {
+              margin-top: 28px;
+              font-size: 13px;
+              color: #475569;
+            }
+            @media print {
+              .button-print {
+                display: none;
+              }
+              body {
+                margin: 10mm;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>Boletim de Votação</h1>
+            <p><strong>Escola:</strong> ${escapeHtml(election.schoolName)}</p>
+            <p><strong>Turma:</strong> ${escapeHtml(election.className)}</p>
+            <p><strong>Eleição:</strong> ${escapeHtml(election.title)}</p>
+            <p><strong>Status:</strong> ${escapeHtml(String(election.status).toUpperCase())}</p>
+
+            <div class="meta">
+              <div class="meta-box"><strong>Total de votantes:</strong><br />${escapeHtml(String(election.votes.length))}</div>
+              <div class="meta-box"><strong>Link da turma:</strong><br />${escapeHtml(`${window.location.origin}/votacao/${election.accessCode}`)}</div>
+            </div>
+          </div>
+
+          <button class="button-print" onclick="window.print()">Imprimir / Salvar em PDF</button>
+
+          <div class="section">
+            <h2>Apuração por cargo</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Cargo</th>
+                  <th>Candidato</th>
+                  <th>Número</th>
+                  <th>Votos</th>
+                  <th>Percentual</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${summaryRows || '<tr><td colspan="5">Sem dados de apuração.</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="section">
+            <h2>Registro nominal da votação</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Nome do eleitor</th>
+                  <th>CPF</th>
+                  <th>Cargo</th>
+                  <th>Candidato escolhido</th>
+                  <th>Número</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${voteRows || '<tr><td colspan="6">Nenhum voto registrado.</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="footer">
+            Relatório gerado automaticamente para fins de auditoria, conferência, transparência e lisura da votação.
+          </div>
+        </body>
+      </html>
+    `);
+
+    reportWindow.document.close();
+  }
+
   if (loading) {
     return <div style={styles.loading}>Carregando...</div>;
   }
@@ -962,7 +1175,15 @@ export default function App() {
 
         {elections.map((election) => (
           <div key={election.id} style={{ marginBottom: 30 }}>
-            <h3>{election.className}</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <h3 style={{ margin: 0 }}>{election.className}</h3>
+              <button
+                style={{ ...styles.primaryButton, padding: '10px 14px', fontSize: 14 }}
+                onClick={() => openElectionReport(election)}
+              >
+                Gerar relatório completo
+              </button>
+            </div>
             <p>
               <strong>Link:</strong>{' '}
               <a
