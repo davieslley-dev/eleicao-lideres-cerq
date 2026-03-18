@@ -110,6 +110,18 @@ export default function App() {
   const [candidateNumber, setCandidateNumber] = useState('');
   const [candidatePhoto, setCandidatePhoto] = useState('');
 
+  const [editingElectionId, setEditingElectionId] = useState('');
+  const [editClassName, setEditClassName] = useState('');
+  const [editTitle, setEditTitle] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+
+  const [editingCandidateId, setEditingCandidateId] = useState('');
+  const [editCandidateElectionId, setEditCandidateElectionId] = useState('');
+  const [editCandidateName, setEditCandidateName] = useState('');
+  const [editCandidatePositionId, setEditCandidatePositionId] = useState('');
+  const [editCandidateNumber, setEditCandidateNumber] = useState('');
+  const [editCandidatePhoto, setEditCandidatePhoto] = useState('');
+
   const [accessCodeInput, setAccessCodeInput] = useState('');
   const [currentElectionId, setCurrentElectionId] = useState('');
   const [voterName, setVoterName] = useState('');
@@ -126,6 +138,11 @@ export default function App() {
   const currentElection = useMemo(
     () => elections.find((election) => election.id === currentElectionId),
     [elections, currentElectionId]
+  );
+
+  const editingCandidateElection = useMemo(
+    () => elections.find((election) => election.id === editCandidateElectionId),
+    [elections, editCandidateElectionId]
   );
 
   async function loadData() {
@@ -227,11 +244,58 @@ export default function App() {
     await loadData();
   }
 
+  function startEditElection(election) {
+    setEditingElectionId(election.id);
+    setEditClassName(election.className);
+    setEditTitle(election.title);
+    setEditDescription(election.description || '');
+    setMessage('');
+  }
+
+  function cancelEditElection() {
+    setEditingElectionId('');
+    setEditClassName('');
+    setEditTitle('');
+    setEditDescription('');
+  }
+
+  async function saveElectionEdit() {
+    if (!editingElectionId) return;
+    if (!editClassName.trim()) {
+      setMessage('Informe a turma para salvar a edição.');
+      return;
+    }
+
+    const payload = {
+      class_name: editClassName.trim(),
+      title: editTitle.trim() || `Eleição da Turma ${editClassName.trim()}`,
+      description: editDescription.trim(),
+    };
+
+    const { error } = await supabase.from('elections').update(payload).eq('id', editingElectionId);
+    if (error) {
+      setMessage(`Erro ao editar turma: ${error.message}`);
+      return;
+    }
+
+    cancelEditElection();
+    setMessage('Turma atualizada com sucesso.');
+    await loadData();
+  }
+
   function handlePhotoUpload(event) {
     const file = event.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => setCandidatePhoto(String(reader.result || ''));
+    reader.readAsDataURL(file);
+  }
+
+  function handleEditCandidatePhotoUpload(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setEditCandidatePhoto(String(reader.result || ''));
     reader.readAsDataURL(file);
   }
 
@@ -262,11 +326,60 @@ export default function App() {
     await loadData();
   }
 
+  function startEditCandidate(election, candidate) {
+    setEditingCandidateId(candidate.id);
+    setEditCandidateElectionId(election.id);
+    setEditCandidateName(candidate.name);
+    setEditCandidatePositionId(candidate.positionId);
+    setEditCandidateNumber(candidate.number || '');
+    setEditCandidatePhoto(candidate.photo || '');
+    setMessage('');
+  }
+
+  function cancelEditCandidate() {
+    setEditingCandidateId('');
+    setEditCandidateElectionId('');
+    setEditCandidateName('');
+    setEditCandidatePositionId('');
+    setEditCandidateNumber('');
+    setEditCandidatePhoto('');
+  }
+
+  async function saveCandidateEdit() {
+    if (!editingCandidateId) return;
+    if (!editCandidateName.trim() || !editCandidatePositionId) {
+      setMessage('Informe o nome e o cargo do candidato.');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('candidates')
+      .update({
+        name: editCandidateName.trim(),
+        number: editCandidateNumber.trim(),
+        position_id: editCandidatePositionId,
+        photo_url: editCandidatePhoto,
+      })
+      .eq('id', editingCandidateId);
+
+    if (error) {
+      setMessage(`Erro ao editar candidato: ${error.message}`);
+      return;
+    }
+
+    cancelEditCandidate();
+    setMessage('Candidato atualizado com sucesso.');
+    await loadData();
+  }
+
   async function deleteCandidate(candidateId) {
     const { error } = await supabase.from('candidates').delete().eq('id', candidateId);
     if (error) {
       setMessage(`Erro ao excluir candidato: ${error.message}`);
       return;
+    }
+    if (editingCandidateId === candidateId) {
+      cancelEditCandidate();
     }
     setMessage('Candidato excluído com sucesso.');
     await loadData();
@@ -277,6 +390,9 @@ export default function App() {
     if (error) {
       setMessage(`Erro ao excluir turma: ${error.message}`);
       return;
+    }
+    if (editingElectionId === electionId) {
+      cancelEditElection();
     }
     setMessage('Turma excluída com sucesso.');
     await loadData();
@@ -411,168 +527,6 @@ export default function App() {
 
       return { position, ranked };
     });
-  }
-
-
-  function escapeHtml(value) {
-    return String(value)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
-  }
-
-  function formatCpfForReport(value) {
-    const digits = String(value || '').replace(/\D/g, '').slice(0, 11);
-    if (digits.length !== 11) return value || '-';
-    return digits
-      .replace(/(\d{3})(\d)/, '$1.$2')
-      .replace(/(\d{3})(\d)/, '$1.$2')
-      .replace(/(\d{3})(\d{2})$/, '$1-$2');
-  }
-
-  function openElectionReport(election) {
-    const groupedResults = getResultsByPosition(election);
-    const candidateMap = new Map((election.candidates || []).map((candidate) => [candidate.id, candidate]));
-
-    const summaryRows = groupedResults
-      .map((group) => {
-        if (!group.ranked.length) {
-          return `
-            <tr>
-              <td>${escapeHtml(group.position.name)}</td>
-              <td colspan="4">Sem candidatos cadastrados.</td>
-            </tr>
-          `;
-        }
-
-        return group.ranked
-          .map(
-            (candidate) => `
-              <tr>
-                <td>${escapeHtml(group.position.name)}</td>
-                <td>${escapeHtml(candidate.name || '-')}</td>
-                <td>${escapeHtml(candidate.number || '-')}</td>
-                <td>${escapeHtml(String(candidate.totalVotes ?? 0))}</td>
-                <td>${escapeHtml(String(candidate.percent ?? '0.0'))}%</td>
-              </tr>
-            `
-          )
-          .join('');
-      })
-      .join('');
-
-    const voteRows = (election.votes || [])
-      .map((vote) =>
-        (vote.choices || [])
-          .map((choice) => {
-            const candidate = candidateMap.get(choice.candidateId);
-            return `
-              <tr>
-                <td>${escapeHtml(vote.voterName || '-')}</td>
-                <td>${escapeHtml(formatCpfForReport(vote.cpf))}</td>
-                <td>${escapeHtml(choice.position || '-')}</td>
-                <td>${escapeHtml(candidate?.name || 'Não identificado')}</td>
-                <td>${escapeHtml(candidate?.number || '-')}</td>
-              </tr>
-            `;
-          })
-          .join('')
-      )
-      .join('');
-
-    const reportWindow = window.open('', '_blank', 'noopener,noreferrer,width=1200,height=900');
-    if (!reportWindow) {
-      setMessage('O navegador bloqueou a nova aba do relatório.');
-      return;
-    }
-
-    reportWindow.document.write(`
-      <!DOCTYPE html>
-      <html lang="pt-BR">
-      <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Relatório da votação - ${escapeHtml(election.className || 'Turma')}</title>
-        <style>
-          body { font-family: Arial, Helvetica, sans-serif; margin: 24px; color: #111827; }
-          .header { border: 2px solid #0f172a; border-radius: 14px; padding: 20px; margin-bottom: 20px; }
-          h1, h2, h3 { margin: 0 0 10px; }
-          p { margin: 6px 0; }
-          .meta { display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); gap: 12px; margin-top: 14px; }
-          .meta-card { border: 1px solid #cbd5e1; border-radius: 12px; padding: 12px; }
-          .section { margin-top: 24px; }
-          table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-          th, td { border: 1px solid #cbd5e1; padding: 10px; text-align: left; font-size: 14px; }
-          th { background: #e5edf8; }
-          .actions { margin-bottom: 20px; }
-          .actions button { background: #0f172a; color: #fff; border: none; border-radius: 10px; padding: 10px 16px; cursor: pointer; }
-          .badge { display: inline-block; padding: 6px 12px; border-radius: 999px; background: #dcfce7; color: #166534; font-size: 12px; font-weight: 700; }
-          .footer { margin-top: 28px; font-size: 13px; color: #475569; }
-          @media print { .actions { display: none; } body { margin: 10mm; } }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <h1>Boletim completo da votação</h1>
-          <p><strong>Escola:</strong> ${escapeHtml(election.schoolName || 'Colégio Estadual Rodolfo de Queiroz')}</p>
-          <p><strong>Turma:</strong> ${escapeHtml(election.className || '-')}</p>
-          <p><strong>Eleição:</strong> ${escapeHtml(election.title || '-')}</p>
-          <p><strong>Status:</strong> <span class="badge">${escapeHtml((election.status || '').toUpperCase())}</span></p>
-          <div class="meta">
-            <div class="meta-card"><strong>Total de votantes:</strong><br />${escapeHtml(String((election.votes || []).length))}</div>
-            <div class="meta-card"><strong>Link da turma:</strong><br />${escapeHtml(`${window.location.origin}/votacao/${election.accessCode}`)}</div>
-          </div>
-        </div>
-
-        <div class="actions">
-          <button onclick="window.print()">Imprimir / Salvar em PDF</button>
-        </div>
-
-        <div class="section">
-          <h2>Apuração</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Cargo</th>
-                <th>Candidato</th>
-                <th>Número</th>
-                <th>Votos</th>
-                <th>Percentual</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${summaryRows || '<tr><td colspan="5">Sem dados de apuração.</td></tr>'}
-            </tbody>
-          </table>
-        </div>
-
-        <div class="section">
-          <h2>Registro nominal dos votos</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Eleitor</th>
-                <th>CPF</th>
-                <th>Cargo</th>
-                <th>Candidato escolhido</th>
-                <th>Número</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${voteRows || '<tr><td colspan="5">Nenhum voto registrado.</td></tr>'}
-            </tbody>
-          </table>
-        </div>
-
-        <div class="footer">
-          Relatório gerado automaticamente para conferência, lisura e auditoria da votação.
-        </div>
-      </body>
-      </html>
-    `);
-    reportWindow.document.close();
   }
 
   if (loading) {
@@ -850,6 +804,83 @@ export default function App() {
         </div>
       </div>
 
+      {editingElectionId ? (
+        <div style={styles.card}>
+          <h2 style={styles.title}>Editar turma</h2>
+
+          <div style={styles.field}>
+            <label style={styles.label}>Turma</label>
+            <input style={styles.input} value={editClassName} onChange={(e) => setEditClassName(e.target.value)} />
+          </div>
+
+          <div style={styles.field}>
+            <label style={styles.label}>Título da eleição</label>
+            <input style={styles.input} value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+          </div>
+
+          <div style={styles.field}>
+            <label style={styles.label}>Descrição</label>
+            <input style={styles.input} value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
+          </div>
+
+          <div style={styles.buttonRow}>
+            <button style={styles.primaryButton} onClick={saveElectionEdit}>
+              Salvar edição da turma
+            </button>
+            <button style={styles.secondaryButton} onClick={cancelEditElection}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {editingCandidateId ? (
+        <div style={styles.card}>
+          <h2 style={styles.title}>Editar candidato</h2>
+
+          <div style={styles.field}>
+            <label style={styles.label}>Nome do candidato</label>
+            <input style={styles.input} value={editCandidateName} onChange={(e) => setEditCandidateName(e.target.value)} />
+          </div>
+
+          <div style={styles.field}>
+            <label style={styles.label}>Cargo disputado</label>
+            <select
+              style={styles.input}
+              value={editCandidatePositionId}
+              onChange={(e) => setEditCandidatePositionId(e.target.value)}
+            >
+              <option value="">Selecione</option>
+              {(editingCandidateElection?.positions || []).map((position) => (
+                <option key={position.id} value={position.id}>
+                  {position.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div style={styles.field}>
+            <label style={styles.label}>Número do candidato</label>
+            <input style={styles.input} value={editCandidateNumber} onChange={(e) => setEditCandidateNumber(e.target.value)} />
+          </div>
+
+          <div style={styles.field}>
+            <label style={styles.label}>Foto do candidato</label>
+            <input type="file" accept="image/*" onChange={handleEditCandidatePhotoUpload} />
+            {editCandidatePhoto ? <div style={styles.previewText}>Foto carregada para atualização.</div> : null}
+          </div>
+
+          <div style={styles.buttonRow}>
+            <button style={styles.primaryButton} onClick={saveCandidateEdit}>
+              Salvar edição do candidato
+            </button>
+            <button style={styles.secondaryButton} onClick={cancelEditCandidate}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <div style={styles.card}>
         <h2 style={styles.title}>Painel das turmas</h2>
 
@@ -870,11 +901,22 @@ export default function App() {
               <p><strong>Candidatos:</strong> {election.candidates.length}</p>
               <p><strong>Votantes:</strong> {election.votes.length}</p>
 
-              <div style={styles.linkBox}>{`${window.location.origin}/votacao/${election.accessCode}`}</div>
+              <a
+                href={`${window.location.origin}/votacao/${election.accessCode}`}
+                target="_blank"
+                rel="noreferrer"
+                style={styles.linkBox}
+              >
+                {`${window.location.origin}/votacao/${election.accessCode}`}
+              </a>
 
               <div style={styles.buttonRow}>
                 <button style={styles.secondaryButton} onClick={() => toggleElectionStatus(election)}>
                   {election.status === 'aberta' ? 'Encerrar' : 'Reabrir'}
+                </button>
+
+                <button style={styles.editButton} onClick={() => startEditElection(election)}>
+                  Editar turma
                 </button>
 
                 <button style={styles.dangerButton} onClick={() => deleteElection(election.id)}>
@@ -899,9 +941,14 @@ export default function App() {
                       </div>
                     </div>
 
-                    <button style={styles.dangerButtonSmall} onClick={() => deleteCandidate(candidate.id)}>
-                      Excluir
-                    </button>
+                    <div style={styles.buttonRowSmall}>
+                      <button style={styles.editButtonSmall} onClick={() => startEditCandidate(election, candidate)}>
+                        Editar
+                      </button>
+                      <button style={styles.dangerButtonSmall} onClick={() => deleteCandidate(candidate.id)}>
+                        Excluir
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -915,17 +962,17 @@ export default function App() {
 
         {elections.map((election) => (
           <div key={election.id} style={{ marginBottom: 30 }}>
-            <div style={styles.reportHeader}>
-              <div>
-                <h3 style={{ marginBottom: 8 }}>{election.className}</h3>
-                <p>
-                  <strong>Link:</strong> {`${window.location.origin}/votacao/${election.accessCode}`}
-                </p>
-              </div>
-              <button style={styles.reportButton} onClick={() => openElectionReport(election)}>
-                Gerar relatório completo
-              </button>
-            </div>
+            <h3>{election.className}</h3>
+            <p>
+              <strong>Link:</strong>{' '}
+              <a
+                href={`${window.location.origin}/votacao/${election.accessCode}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {`${window.location.origin}/votacao/${election.accessCode}`}
+              </a>
+            </p>
             {getResultsByPosition(election).map((group) => (
               <div key={group.position.id} style={styles.groupBlock}>
                 <h4>{group.position.name}</h4>
@@ -1057,6 +1104,15 @@ const styles = {
     cursor: 'pointer',
     fontSize: 16,
   },
+  editButton: {
+    background: '#2563eb',
+    color: 'white',
+    border: 'none',
+    borderRadius: 14,
+    padding: '12px 18px',
+    cursor: 'pointer',
+    fontSize: 16,
+  },
   dangerButton: {
     background: '#ef4444',
     color: 'white',
@@ -1065,6 +1121,15 @@ const styles = {
     padding: '12px 18px',
     cursor: 'pointer',
     fontSize: 16,
+  },
+  editButtonSmall: {
+    background: '#2563eb',
+    color: 'white',
+    border: 'none',
+    borderRadius: 12,
+    padding: '10px 14px',
+    cursor: 'pointer',
+    fontSize: 14,
   },
   dangerButtonSmall: {
     background: '#ef4444',
@@ -1128,6 +1193,11 @@ const styles = {
     flexWrap: 'wrap',
     marginBottom: 16,
   },
+  buttonRowSmall: {
+    display: 'flex',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
   candidateRow: {
     display: 'flex',
     justifyContent: 'space-between',
@@ -1145,6 +1215,7 @@ const styles = {
   candidateName: {
     fontWeight: 700,
     marginBottom: 6,
+    color: '#111827',
   },
   candidateMeta: {
     color: '#334155',
@@ -1175,6 +1246,11 @@ const styles = {
     borderRadius: '50%',
     background: '#e5e7eb',
   },
+  previewText: {
+    marginTop: 8,
+    color: '#2563eb',
+    fontSize: 14,
+  },
   positionBox: {
     marginTop: 20,
     marginBottom: 20,
@@ -1190,6 +1266,7 @@ const styles = {
   candidateButton: {
     border: '1px solid #cbd5e1',
     background: 'white',
+    color: '#111827',
     borderRadius: 18,
     padding: 14,
     cursor: 'pointer',
@@ -1198,23 +1275,6 @@ const styles = {
     border: '2px solid #0f172a',
     background: '#e2e8f0',
     color: '#111827',
-  },
-  reportHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 12,
-    flexWrap: 'wrap',
-  },
-  reportButton: {
-    background: '#0f172a',
-    color: 'white',
-    border: 'none',
-    borderRadius: 12,
-    padding: '10px 14px',
-    cursor: 'pointer',
-    fontSize: 14,
-    fontWeight: 700,
   },
   groupBlock: {
     marginTop: 16,
