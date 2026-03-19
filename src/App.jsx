@@ -520,370 +520,246 @@ export default function App() {
     await loadData();
   }
 
-  function openElectionReport(election) {
-  const groupedResults = getResultsByPosition(election);
-  const candidateMap = new Map((election.candidates || []).map((candidate) => [candidate.id, candidate]));
+  function getResultsByPosition(election) {
+    return election.positions.map((position) => {
+      const candidates = election.candidates.filter((candidate) => candidate.positionId === position.id);
+      const totalVotes = election.votes.filter((vote) =>
+        vote.choices.some((choice) => choice.positionId === position.id)
+      ).length;
 
-  const summaryRows = groupedResults
-    .map((group) => {
-      return (group.ranked || [])
-        .map(
-          (candidate) => `
-            <tr>
-              <td>${escapeHtml(group.position.name)}</td>
-              <td>${escapeHtml(candidate.name)}</td>
-              <td>${escapeHtml(candidate.number || '-')}</td>
-              <td>${escapeHtml(String(candidate.totalVotes ?? 0))}</td>
-              <td>${escapeHtml(String(candidate.percent ?? '0.0'))}%</td>
-            </tr>
-          `
-        )
-        .join('');
-    })
-    .join('');
+      const ranked = candidates
+        .map((candidate) => {
+          const candidateVotes = election.votes.filter((vote) =>
+            vote.choices.some(
+              (choice) => choice.positionId === position.id && choice.candidateId === candidate.id
+            )
+          ).length;
 
-  const voteRows = (election.votes || [])
-    .map((vote, index) => {
-      return (vote.choices || [])
-        .map((choice) => {
-          const candidate = candidateMap.get(choice.candidateId);
-          return `
-            <tr>
-              <td>${index + 1}</td>
-              <td>${escapeHtml(vote.voterName)}</td>
-              <td>${escapeHtml(formatCpfForReport(vote.cpf))}</td>
-              <td>${escapeHtml(choice.position || election.positions.find((p) => p.id === choice.positionId)?.name || '-')}</td>
-              <td>${escapeHtml(candidate?.name || 'Não identificado')}</td>
-              <td>${escapeHtml(candidate?.number || '-')}</td>
-            </tr>
-          `;
+          return {
+            ...candidate,
+            totalVotes: candidateVotes,
+            percent: totalVotes > 0 ? ((candidateVotes / totalVotes) * 100).toFixed(1) : '0.0',
+          };
         })
-        .join('');
-    })
-    .join('');
+        .sort((a, b) => b.totalVotes - a.totalVotes);
 
-  const reportWindow = window.open('', '_blank', 'width=1200,height=900');
-
-  if (!reportWindow) {
-    setMessage('O navegador bloqueou a abertura da aba do relatório.');
-    return;
+      return { position, ranked };
+    });
   }
 
-  reportWindow.document.open();
-  reportWindow.document.write(`
-    <!DOCTYPE html>
-    <html lang="pt-BR">
-      <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Relatório da votação - ${escapeHtml(election.className)}</title>
-        <style>
-          body {
-            font-family: Arial, sans-serif;
-            margin: 24px;
-            color: #111827;
-          }
-          .header {
-            border: 2px solid #0f172a;
-            border-radius: 16px;
-            padding: 20px;
-            margin-bottom: 20px;
-          }
-          .header h1 {
-            margin: 0 0 10px;
-            font-size: 28px;
-          }
-          .header p {
-            margin: 6px 0;
-          }
-          .section {
-            margin-top: 24px;
-          }
-          .section h2 {
-            margin: 0 0 12px;
-            font-size: 22px;
-          }
-          table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 10px;
-          }
-          th, td {
-            border: 1px solid #cbd5e1;
-            padding: 10px;
-            text-align: left;
-            font-size: 14px;
-          }
-          th {
-            background: #e2e8f0;
-          }
-          .button-print {
-            background: #0f172a;
-            color: white;
-            border: none;
-            border-radius: 10px;
-            padding: 10px 14px;
-            cursor: pointer;
-            margin-bottom: 16px;
-          }
-          .meta {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-            gap: 12px;
-            margin-top: 14px;
-          }
-          .meta-box {
-            border: 1px solid #cbd5e1;
-            border-radius: 12px;
-            padding: 12px;
-            background: #f8fafc;
-          }
-          .footer {
-            margin-top: 28px;
-            font-size: 13px;
-            color: #475569;
-          }
-          @media print {
-            .button-print {
-              display: none;
-            }
+  function openElectionReport(election) {
+  try {
+    const groupedResults = getResultsByPosition(election);
+    const candidateMap = new Map(
+      (election.candidates || []).map((candidate) => [candidate.id, candidate])
+    );
+
+    const summaryRows = groupedResults
+      .map((group) =>
+        (group.ranked || [])
+          .map(
+            (candidate) => `
+              <tr>
+                <td>${escapeHtml(group.position.name)}</td>
+                <td>${escapeHtml(candidate.name)}</td>
+                <td>${escapeHtml(candidate.number || '-')}</td>
+                <td>${escapeHtml(String(candidate.totalVotes ?? 0))}</td>
+                <td>${escapeHtml(String(candidate.percent ?? '0.0'))}%</td>
+              </tr>
+            `
+          )
+          .join('')
+      )
+      .join('');
+
+    const voteRows = (election.votes || [])
+      .map((vote, index) =>
+        (vote.choices || [])
+          .map((choice) => {
+            const candidate = candidateMap.get(choice.candidateId);
+            return `
+              <tr>
+                <td>${index + 1}</td>
+                <td>${escapeHtml(vote.voterName)}</td>
+                <td>${escapeHtml(formatCpfForReport(vote.cpf))}</td>
+                <td>${escapeHtml(
+                  choice.position ||
+                    election.positions.find((p) => p.id === choice.positionId)?.name ||
+                    '-'
+                )}</td>
+                <td>${escapeHtml(candidate?.name || 'Não identificado')}</td>
+                <td>${escapeHtml(candidate?.number || '-')}</td>
+              </tr>
+            `;
+          })
+          .join('')
+      )
+      .join('');
+
+    const reportWindow = window.open('', '_blank', 'width=1200,height=900');
+
+    if (!reportWindow) {
+      setMessage('O navegador bloqueou a abertura da aba do relatório.');
+      return;
+    }
+
+    const html = `
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+        <head>
+          <meta charset="UTF-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+          <title>Relatório da votação - ${escapeHtml(election.className)}</title>
+          <style>
             body {
-              margin: 10mm;
+              font-family: Arial, sans-serif;
+              margin: 24px;
+              color: #111827;
             }
-          }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <h1>Boletim de Votação</h1>
-          <p><strong>Escola:</strong> ${escapeHtml(election.schoolName)}</p>
-          <p><strong>Turma:</strong> ${escapeHtml(election.className)}</p>
-          <p><strong>Eleição:</strong> ${escapeHtml(election.title)}</p>
-          <p><strong>Status:</strong> ${escapeHtml(String(election.status).toUpperCase())}</p>
-
-          <div class="meta">
-            <div class="meta-box"><strong>Total de votantes:</strong><br />${escapeHtml(String(election.votes.length))}</div>
-            <div class="meta-box"><strong>Link da turma:</strong><br />${escapeHtml(`${window.location.origin}/votacao/${election.accessCode}`)}</div>
-          </div>
-        </div>
-
-        <button class="button-print" onclick="window.print()">Imprimir / Salvar em PDF</button>
-
-        <div class="section">
-          <h2>Apuração por cargo</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Cargo</th>
-                <th>Candidato</th>
-                <th>Número</th>
-                <th>Votos</th>
-                <th>Percentual</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${summaryRows || '<tr><td colspan="5">Sem dados de apuração.</td></tr>'}
-            </tbody>
-          </table>
-        </div>
-
-        <div class="section">
-          <h2>Registro nominal da votação</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Nome do eleitor</th>
-                <th>CPF</th>
-                <th>Cargo</th>
-                <th>Candidato escolhido</th>
-                <th>Número</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${voteRows || '<tr><td colspan="6">Nenhum voto registrado.</td></tr>'}
-            </tbody>
-          </table>
-        </div>
-
-        <div class="footer">
-          Relatório gerado automaticamente para fins de auditoria, conferência, transparência e lisura da votação.
-        </div>
-      </body>
-    </html>
-  `);
-  reportWindow.document.close();
-}
-
-  if (loading) {
-    return <div style={styles.loading}>Carregando...</div>;
-  }
-
-  if (isVotingPage) {
-    return (
-      <div style={styles.page}>
-        <div style={styles.banner}>
-          <div>
-            <h1 style={styles.bannerTitle}>Sistema de Eleição de Líderes</h1>
-            <p style={styles.bannerSubtitle}>Colégio Estadual Rodolfo de Queiroz</p>
-          </div>
-        </div>
-
-        {message ? <div style={styles.alert}>{message}</div> : null}
-
-        <div style={styles.cardLarge}>
-          <h2 style={styles.title}>Votação da turma</h2>
-
-          <div style={styles.field}>
-            <label style={styles.label}>Código ou link da turma</label>
-            <input
-              style={styles.input}
-              value={accessCodeInput}
-              onChange={(e) => setAccessCodeInput(e.target.value)}
-              placeholder="Digite o código da turma"
-            />
-          </div>
-
-          <button style={styles.primaryButton} onClick={accessElectionByCode}>
-            Acessar turma
-          </button>
-
-          {currentElection ? (
-            <>
-              <div style={{ marginTop: 20 }}>
-                <h3 style={{ marginBottom: 8 }}>{currentElection.className}</h3>
-                <p style={{ color: '#555' }}>
-                  {currentElection.description || 'Escolha um candidato para cada cargo disponível.'}
-                </p>
-              </div>
-
-              <div style={styles.field}>
-                <label style={styles.label}>Nome completo</label>
-                <input style={styles.input} value={voterName} onChange={(e) => setVoterName(e.target.value)} />
-              </div>
-
-              <div style={styles.field}>
-                <label style={styles.label}>CPF</label>
-                <input
-                  style={styles.input}
-                  value={voterCPF}
-                  onChange={(e) => setVoterCPF(formatCPF(e.target.value))}
-                  placeholder="000.000.000-00"
-                />
-              </div>
-
-              {currentElection.positions
-                .filter((position) => currentElection.candidates.some((candidate) => candidate.positionId === position.id))
-                .map((position) => {
-                  const positionCandidates = currentElection.candidates.filter(
-                    (candidate) => candidate.positionId === position.id
-                  );
-
-                  return (
-                    <div key={position.id} style={styles.positionBox}>
-                      <h3 style={{ marginBottom: 6 }}>{position.name}</h3>
-                      <p style={{ color: '#666', marginBottom: 12 }}>Selecione um e somente um candidato.</p>
-
-                      <div style={styles.candidateGrid}>
-                        {positionCandidates.map((candidate) => {
-                          const active = selectedVotes[position.id] === candidate.id;
-                          return (
-                            <button
-                              key={candidate.id}
-                              onClick={() =>
-                                setSelectedVotes((prev) => ({
-                                  ...prev,
-                                  [position.id]: candidate.id,
-                                }))
-                              }
-                              style={{
-                                ...styles.candidateButton,
-                                ...(active ? styles.candidateButtonActive : {}),
-                              }}
-                            >
-                              <div style={styles.candidateInfo}>
-                                {candidate.photo ? (
-                                  <img src={candidate.photo} alt={candidate.name} style={styles.avatar} />
-                                ) : (
-                                  <div style={styles.avatarPlaceholder} />
-                                )}
-                                <div>
-                                  <div style={{ ...styles.candidateName, color: active ? '#111827' : styles.candidateName.color }}>{candidate.name}</div>
-                                  <div style={{ ...styles.candidateMeta, color: active ? '#1f2937' : styles.candidateMeta.color }}>Nº {candidate.number}</div>
-                                </div>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-
-              <button style={styles.primaryButton} onClick={submitVote}>
-                Confirmar votação
-              </button>
-            </>
-          ) : null}
-        </div>
-      </div>
-    );
-  }
-
-  if (!isAdminAuthenticated) {
-    return (
-      <div style={styles.page}>
-        <div style={styles.banner}>
-          <div>
-            <h1 style={styles.bannerTitle}>Sistema de Eleição de Líderes</h1>
-            <p style={styles.bannerSubtitle}>Colégio Estadual Rodolfo de Queiroz</p>
-          </div>
-        </div>
-
-        {message ? <div style={styles.alert}>{message}</div> : null}
-
-        <div style={styles.loginCard}>
-          <h2 style={styles.title}>Acesso do administrador</h2>
-          <p style={styles.text}>Somente a administração acessa cadastro de candidatos, turmas e apuração.</p>
-
-          <div style={styles.field}>
-            <label style={styles.label}>Usuário administrador</label>
-            <input
-              style={styles.input}
-              value={adminUsername}
-              onChange={(e) => setAdminUsername(e.target.value)}
-              placeholder="CERQ"
-            />
-          </div>
-
-          <div style={styles.field}>
-            <label style={styles.label}>Senha</label>
-            <input
-              type="password"
-              style={styles.input}
-              value={adminPassword}
-              onChange={(e) => setAdminPassword(e.target.value)}
-              placeholder="Digite a senha"
-            />
-          </div>
-
-          <button
-            style={styles.primaryButton}
-            onClick={() => {
-              if (adminUsername.trim() === ADMIN_USERNAME && adminPassword === ADMIN_PASSWORD) {
-                setIsAdminAuthenticated(true);
-                setMessage('Acesso liberado.');
-              } else {
-                setMessage('Usuário ou senha inválidos.');
+            .header {
+              border: 2px solid #0f172a;
+              border-radius: 16px;
+              padding: 20px;
+              margin-bottom: 20px;
+            }
+            .header h1 {
+              margin: 0 0 10px;
+              font-size: 28px;
+            }
+            .header p {
+              margin: 6px 0;
+            }
+            .section {
+              margin-top: 24px;
+            }
+            .section h2 {
+              margin: 0 0 12px;
+              font-size: 22px;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 10px;
+            }
+            th, td {
+              border: 1px solid #cbd5e1;
+              padding: 10px;
+              text-align: left;
+              font-size: 14px;
+            }
+            th {
+              background: #e2e8f0;
+            }
+            .button-print {
+              background: #0f172a;
+              color: white;
+              border: none;
+              border-radius: 10px;
+              padding: 10px 14px;
+              cursor: pointer;
+              margin-bottom: 16px;
+            }
+            .meta {
+              display: grid;
+              grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+              gap: 12px;
+              margin-top: 14px;
+            }
+            .meta-box {
+              border: 1px solid #cbd5e1;
+              border-radius: 12px;
+              padding: 12px;
+              background: #f8fafc;
+            }
+            .footer {
+              margin-top: 28px;
+              font-size: 13px;
+              color: #475569;
+            }
+            @media print {
+              .button-print {
+                display: none;
               }
-            }}
-          >
-            Entrar
-          </button>
-        </div>
-      </div>
-    );
+              body {
+                margin: 10mm;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>Boletim de Votação</h1>
+            <p><strong>Escola:</strong> ${escapeHtml(election.schoolName)}</p>
+            <p><strong>Turma:</strong> ${escapeHtml(election.className)}</p>
+            <p><strong>Eleição:</strong> ${escapeHtml(election.title)}</p>
+            <p><strong>Status:</strong> ${escapeHtml(String(election.status).toUpperCase())}</p>
+
+            <div class="meta">
+              <div class="meta-box">
+                <strong>Total de votantes:</strong><br />${escapeHtml(String(election.votes.length))}
+              </div>
+              <div class="meta-box">
+                <strong>Link da turma:</strong><br />${escapeHtml(
+                  `${window.location.origin}/votacao/${election.accessCode}`
+                )}
+              </div>
+            </div>
+          </div>
+
+          <button class="button-print" onclick="window.print()">Imprimir / Salvar em PDF</button>
+
+          <div class="section">
+            <h2>Apuração por cargo</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Cargo</th>
+                  <th>Candidato</th>
+                  <th>Número</th>
+                  <th>Votos</th>
+                  <th>Percentual</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${summaryRows || '<tr><td colspan="5">Sem dados de apuração.</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="section">
+            <h2>Registro nominal da votação</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Nome do eleitor</th>
+                  <th>CPF</th>
+                  <th>Cargo</th>
+                  <th>Candidato escolhido</th>
+                  <th>Número</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${voteRows || '<tr><td colspan="6">Nenhum voto registrado.</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="footer">
+            Relatório gerado automaticamente para fins de auditoria, conferência, transparência e lisura da votação.
+          </div>
+        </body>
+      </html>
+    `;
+
+    reportWindow.document.open();
+    reportWindow.document.write(html);
+    reportWindow.document.close();
+  } catch (error) {
+    console.error('Erro ao gerar relatório:', error);
+    setMessage(`Erro ao gerar relatório: ${error.message}`);
   }
+}
 
   return (
     <div style={styles.page}>
