@@ -552,8 +552,8 @@ export default function App() {
     const candidateMap = new Map((election.candidates || []).map((candidate) => [candidate.id, candidate]));
 
     const summaryRows = groupedResults
-      .map((group) => {
-        return (group.ranked || [])
+      .map((group) =>
+        (group.ranked || [])
           .map(
             (candidate) => `
               <tr>
@@ -565,13 +565,13 @@ export default function App() {
               </tr>
             `
           )
-          .join('');
-      })
+          .join('')
+      )
       .join('');
 
     const voteRows = (election.votes || [])
-      .map((vote, index) => {
-        return (vote.choices || [])
+      .map((vote, index) =>
+        (vote.choices || [])
           .map((choice) => {
             const candidate = candidateMap.get(choice.candidateId);
             return `
@@ -585,8 +585,8 @@ export default function App() {
               </tr>
             `;
           })
-          .join('');
-      })
+          .join('')
+      )
       .join('');
 
     const reportWindow = window.open('', '_blank', 'noopener,noreferrer,width=1200,height=900');
@@ -596,6 +596,7 @@ export default function App() {
       return;
     }
 
+    reportWindow.document.open();
     reportWindow.document.write(`
       <!DOCTYPE html>
       <html lang="pt-BR">
@@ -738,7 +739,6 @@ export default function App() {
         </body>
       </html>
     `);
-
     reportWindow.document.close();
   }
 
