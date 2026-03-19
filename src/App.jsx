@@ -521,31 +521,165 @@ export default function App() {
   }
 
   function getResultsByPosition(election) {
-    return election.positions.map((position) => {
-      const candidates = election.candidates.filter((candidate) => candidate.positionId === position.id);
-      const totalVotes = election.votes.filter((vote) =>
-        vote.choices.some((choice) => choice.positionId === position.id)
-      ).length;
+  try {
+    const groupedResults = getResultsByPosition(election);
+    const candidateMap = new Map(
+      (election.candidates || []).map((candidate) => [candidate.id, candidate])
+    );
 
-      const ranked = candidates
-        .map((candidate) => {
-          const candidateVotes = election.votes.filter((vote) =>
-            vote.choices.some(
-              (choice) => choice.positionId === position.id && choice.candidateId === candidate.id
-            )
-          ).length;
+    const summaryRows = groupedResults
+      .map((group) =>
+        (group.ranked || [])
+          .map(
+            (candidate) => `
+              <tr>
+                <td>${group.position?.name || group.position || "-"}</td>
+                <td>${candidate.name || "-"}</td>
+                <td>${candidate.number || "-"}</td>
+                <td>${candidate.totalVotes ?? candidate.votes ?? 0}</td>
+                <td>${candidate.percent ?? "0.0"}%</td>
+              </tr>
+            `
+          )
+          .join("")
+      )
+      .join("");
 
-          return {
-            ...candidate,
-            totalVotes: candidateVotes,
-            percent: totalVotes > 0 ? ((candidateVotes / totalVotes) * 100).toFixed(1) : '0.0',
-          };
-        })
-        .sort((a, b) => b.totalVotes - a.totalVotes);
+    const voteRows = (election.votes || [])
+      .map((vote, index) =>
+        (vote.choices || [])
+          .map((choice) => {
+            const candidate = candidateMap.get(choice.candidateId);
+            return `
+              <tr>
+                <td>${index + 1}</td>
+                <td>${vote.voterName || "-"}</td>
+                <td>${formatCPF(String(vote.cpf || ""))}</td>
+                <td>${choice.position || "-"}</td>
+                <td>${candidate?.name || "Não identificado"}</td>
+                <td>${candidate?.number || "-"}</td>
+              </tr>
+            `;
+          })
+          .join("")
+      )
+      .join("");
 
-      return { position, ranked };
-    });
+    const reportWindow = window.open("", "_blank", "width=1200,height=900");
+
+    if (!reportWindow) {
+      setMessage("O navegador bloqueou a aba do relatório.");
+      return;
+    }
+
+    reportWindow.document.open();
+    reportWindow.document.write(`
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+      <head>
+        <meta charset="UTF-8" />
+        <title>Relatório da votação</title>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            margin: 24px;
+            color: #111827;
+          }
+          h1, h2 {
+            margin-bottom: 10px;
+          }
+          .header {
+            border: 2px solid #0f172a;
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 24px;
+          }
+          .meta {
+            margin: 6px 0;
+          }
+          .print-btn {
+            background: #0f172a;
+            color: #fff;
+            border: none;
+            border-radius: 10px;
+            padding: 10px 14px;
+            cursor: pointer;
+            margin-bottom: 20px;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            margin-bottom: 24px;
+          }
+          th, td {
+            border: 1px solid #cbd5e1;
+            padding: 10px;
+            text-align: left;
+            font-size: 14px;
+          }
+          th {
+            background: #e2e8f0;
+          }
+          @media print {
+            .print-btn { display: none; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>Boletim de Votação</h1>
+          <p class="meta"><strong>Escola:</strong> ${election.schoolName || "-"}</p>
+          <p class="meta"><strong>Turma:</strong> ${election.className || "-"}</p>
+          <p class="meta"><strong>Eleição:</strong> ${election.title || "-"}</p>
+          <p class="meta"><strong>Status:</strong> ${String(election.status || "").toUpperCase()}</p>
+          <p class="meta"><strong>Total de votantes:</strong> ${(election.votes || []).length}</p>
+          <p class="meta"><strong>Link da turma:</strong> ${window.location.origin}/votacao/${election.accessCode}</p>
+        </div>
+
+        <button class="print-btn" onclick="window.print()">Imprimir / Salvar em PDF</button>
+
+        <h2>Apuração por cargo</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Cargo</th>
+              <th>Candidato</th>
+              <th>Número</th>
+              <th>Votos</th>
+              <th>Percentual</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${summaryRows || '<tr><td colspan="5">Sem dados de apuração.</td></tr>'}
+          </tbody>
+        </table>
+
+        <h2>Registro nominal da votação</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Nome do eleitor</th>
+              <th>CPF</th>
+              <th>Cargo</th>
+              <th>Candidato escolhido</th>
+              <th>Número</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${voteRows || '<tr><td colspan="6">Nenhum voto registrado.</td></tr>'}
+          </tbody>
+        </table>
+      </body>
+      </html>
+    `);
+    reportWindow.document.close();
+  } catch (error) {
+    console.error("Erro ao gerar relatório:", error);
+    setMessage("Erro ao gerar relatório. Abra o console do navegador para ver detalhes.");
   }
+}
 
   function openElectionReport(election) {
     const groupedResults = getResultsByPosition(election);
