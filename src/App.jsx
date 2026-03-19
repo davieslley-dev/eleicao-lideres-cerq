@@ -521,226 +521,165 @@ export default function App() {
   }
 
   function getResultsByPosition(election) {
-    return election.positions.map((position) => {
-      const candidates = election.candidates.filter((candidate) => candidate.positionId === position.id);
-      const totalVotes = election.votes.filter((vote) =>
-        vote.choices.some((choice) => choice.positionId === position.id)
-      ).length;
-
-      const ranked = candidates
-        .map((candidate) => {
-          const candidateVotes = election.votes.filter((vote) =>
-            vote.choices.some(
-              (choice) => choice.positionId === position.id && choice.candidateId === candidate.id
-            )
-          ).length;
-
-          return {
-            ...candidate,
-            totalVotes: candidateVotes,
-            percent: totalVotes > 0 ? ((candidateVotes / totalVotes) * 100).toFixed(1) : '0.0',
-          };
-        })
-        .sort((a, b) => b.totalVotes - a.totalVotes);
-
-      return { position, ranked };
-    });
-  }
-
-  function openElectionReport(election) {
+  try {
     const groupedResults = getResultsByPosition(election);
-    const candidateMap = new Map((election.candidates || []).map((candidate) => [candidate.id, candidate]));
+    const candidateMap = new Map(
+      (election.candidates || []).map((candidate) => [candidate.id, candidate])
+    );
 
     const summaryRows = groupedResults
-      .map((group) => {
-        return (group.ranked || [])
+      .map((group) =>
+        (group.ranked || [])
           .map(
             (candidate) => `
               <tr>
-                <td>${escapeHtml(group.position.name)}</td>
-                <td>${escapeHtml(candidate.name)}</td>
-                <td>${escapeHtml(candidate.number || '-')}</td>
-                <td>${escapeHtml(String(candidate.totalVotes ?? 0))}</td>
-                <td>${escapeHtml(String(candidate.percent ?? '0.0'))}%</td>
+                <td>${group.position?.name || group.position || "-"}</td>
+                <td>${candidate.name || "-"}</td>
+                <td>${candidate.number || "-"}</td>
+                <td>${candidate.totalVotes ?? candidate.votes ?? 0}</td>
+                <td>${candidate.percent ?? "0.0"}%</td>
               </tr>
             `
           )
-          .join('');
-      })
-      .join('');
+          .join("")
+      )
+      .join("");
 
     const voteRows = (election.votes || [])
-      .map((vote, index) => {
-        return (vote.choices || [])
+      .map((vote, index) =>
+        (vote.choices || [])
           .map((choice) => {
             const candidate = candidateMap.get(choice.candidateId);
             return `
               <tr>
                 <td>${index + 1}</td>
-                <td>${escapeHtml(vote.voterName)}</td>
-                <td>${escapeHtml(formatCpfForReport(vote.cpf))}</td>
-                <td>${escapeHtml(choice.position || election.positions.find((p) => p.id === choice.positionId)?.name || '-')}</td>
-                <td>${escapeHtml(candidate?.name || 'Não identificado')}</td>
-                <td>${escapeHtml(candidate?.number || '-')}</td>
+                <td>${vote.voterName || "-"}</td>
+                <td>${formatCPF(String(vote.cpf || ""))}</td>
+                <td>${choice.position || "-"}</td>
+                <td>${candidate?.name || "Não identificado"}</td>
+                <td>${candidate?.number || "-"}</td>
               </tr>
             `;
           })
-          .join('');
-      })
-      .join('');
+          .join("")
+      )
+      .join("");
 
-    const reportWindow = window.open('', '_blank', 'noopener,noreferrer,width=1200,height=900');
+    const reportWindow = window.open("", "_blank", "width=1200,height=900");
 
     if (!reportWindow) {
-      setMessage('O navegador bloqueou a abertura da aba do relatório.');
+      setMessage("O navegador bloqueou a aba do relatório.");
       return;
     }
 
+    reportWindow.document.open();
     reportWindow.document.write(`
       <!DOCTYPE html>
       <html lang="pt-BR">
-        <head>
-          <meta charset="UTF-8" />
-          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-          <title>Relatório da votação - ${escapeHtml(election.className)}</title>
-          <style>
-            body {
-              font-family: Arial, sans-serif;
-              margin: 24px;
-              color: #111827;
-            }
-            .header {
-              border: 2px solid #0f172a;
-              border-radius: 16px;
-              padding: 20px;
-              margin-bottom: 20px;
-            }
-            .header h1 {
-              margin: 0 0 10px;
-              font-size: 28px;
-            }
-            .header p {
-              margin: 6px 0;
-            }
-            .section {
-              margin-top: 24px;
-            }
-            .section h2 {
-              margin: 0 0 12px;
-              font-size: 22px;
-            }
-            table {
-              width: 100%;
-              border-collapse: collapse;
-              margin-top: 10px;
-            }
-            th, td {
-              border: 1px solid #cbd5e1;
-              padding: 10px;
-              text-align: left;
-              font-size: 14px;
-            }
-            th {
-              background: #e2e8f0;
-            }
-            .button-print {
-              background: #0f172a;
-              color: white;
-              border: none;
-              border-radius: 10px;
-              padding: 10px 14px;
-              cursor: pointer;
-              margin-bottom: 16px;
-            }
-            .meta {
-              display: grid;
-              grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-              gap: 12px;
-              margin-top: 14px;
-            }
-            .meta-box {
-              border: 1px solid #cbd5e1;
-              border-radius: 12px;
-              padding: 12px;
-              background: #f8fafc;
-            }
-            .footer {
-              margin-top: 28px;
-              font-size: 13px;
-              color: #475569;
-            }
-            @media print {
-              .button-print {
-                display: none;
-              }
-              body {
-                margin: 10mm;
-              }
-            }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <h1>Boletim de Votação</h1>
-            <p><strong>Escola:</strong> ${escapeHtml(election.schoolName)}</p>
-            <p><strong>Turma:</strong> ${escapeHtml(election.className)}</p>
-            <p><strong>Eleição:</strong> ${escapeHtml(election.title)}</p>
-            <p><strong>Status:</strong> ${escapeHtml(String(election.status).toUpperCase())}</p>
+      <head>
+        <meta charset="UTF-8" />
+        <title>Relatório da votação</title>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            margin: 24px;
+            color: #111827;
+          }
+          h1, h2 {
+            margin-bottom: 10px;
+          }
+          .header {
+            border: 2px solid #0f172a;
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 24px;
+          }
+          .meta {
+            margin: 6px 0;
+          }
+          .print-btn {
+            background: #0f172a;
+            color: #fff;
+            border: none;
+            border-radius: 10px;
+            padding: 10px 14px;
+            cursor: pointer;
+            margin-bottom: 20px;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            margin-bottom: 24px;
+          }
+          th, td {
+            border: 1px solid #cbd5e1;
+            padding: 10px;
+            text-align: left;
+            font-size: 14px;
+          }
+          th {
+            background: #e2e8f0;
+          }
+          @media print {
+            .print-btn { display: none; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>Boletim de Votação</h1>
+          <p class="meta"><strong>Escola:</strong> ${election.schoolName || "-"}</p>
+          <p class="meta"><strong>Turma:</strong> ${election.className || "-"}</p>
+          <p class="meta"><strong>Eleição:</strong> ${election.title || "-"}</p>
+          <p class="meta"><strong>Status:</strong> ${String(election.status || "").toUpperCase()}</p>
+          <p class="meta"><strong>Total de votantes:</strong> ${(election.votes || []).length}</p>
+          <p class="meta"><strong>Link da turma:</strong> ${window.location.origin}/votacao/${election.accessCode}</p>
+        </div>
 
-            <div class="meta">
-              <div class="meta-box"><strong>Total de votantes:</strong><br />${escapeHtml(String(election.votes.length))}</div>
-              <div class="meta-box"><strong>Link da turma:</strong><br />${escapeHtml(`${window.location.origin}/votacao/${election.accessCode}`)}</div>
-            </div>
-          </div>
+        <button class="print-btn" onclick="window.print()">Imprimir / Salvar em PDF</button>
 
-          <button class="button-print" onclick="window.print()">Imprimir / Salvar em PDF</button>
+        <h2>Apuração por cargo</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Cargo</th>
+              <th>Candidato</th>
+              <th>Número</th>
+              <th>Votos</th>
+              <th>Percentual</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${summaryRows || '<tr><td colspan="5">Sem dados de apuração.</td></tr>'}
+          </tbody>
+        </table>
 
-          <div class="section">
-            <h2>Apuração por cargo</h2>
-            <table>
-              <thead>
-                <tr>
-                  <th>Cargo</th>
-                  <th>Candidato</th>
-                  <th>Número</th>
-                  <th>Votos</th>
-                  <th>Percentual</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${summaryRows || '<tr><td colspan="5">Sem dados de apuração.</td></tr>'}
-              </tbody>
-            </table>
-          </div>
-
-          <div class="section">
-            <h2>Registro nominal da votação</h2>
-            <table>
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Nome do eleitor</th>
-                  <th>CPF</th>
-                  <th>Cargo</th>
-                  <th>Candidato escolhido</th>
-                  <th>Número</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${voteRows || '<tr><td colspan="6">Nenhum voto registrado.</td></tr>'}
-              </tbody>
-            </table>
-          </div>
-
-          <div class="footer">
-            Relatório gerado automaticamente para fins de auditoria, conferência, transparência e lisura da votação.
-          </div>
-        </body>
+        <h2>Registro nominal da votação</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Nome do eleitor</th>
+              <th>CPF</th>
+              <th>Cargo</th>
+              <th>Candidato escolhido</th>
+              <th>Número</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${voteRows || '<tr><td colspan="6">Nenhum voto registrado.</td></tr>'}
+          </tbody>
+        </table>
+      </body>
       </html>
     `);
-
     reportWindow.document.close();
+  } catch (error) {
+    console.error("Erro ao gerar relatório:", error);
+    setMessage("Erro ao gerar relatório. Abra o console do navegador para ver detalhes.");
   }
+}}
 
   if (loading) {
     return <div style={styles.loading}>Carregando...</div>;
